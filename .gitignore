@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 
 MHD_data/dataset_h5/64374.h5
 MHD_data/dataset_h5/64376.h5
@@ -187,3 +188,12 @@ MHD_data/dataset_pickle/73020.pickle
 MHD_data/dataset_pickle/73021.pickle
 MHD_data/dataset_pickle/73022.pickle
 MHD_data/dataset_pickle/73023.pickle
+=======
+/data
+
+# jupyter notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+__pycache__/
+>>>>>>> main
