@@ -14,9 +14,9 @@ class SimpleLSTM(nn.Module):
 
         self.lstm = nn.LSTM(input_size = input_size, 
                             hidden_size = hidden_size,
-                            num_layers = num_layers)
+                            num_layers = num_layers,
+                            dropout = dropout_rate)
         
-        self.dropout = nn.Dropout(dropout_rate)
         self.fc = nn.Linear(hidden_size, 1)
 
     def forward(self, input):
