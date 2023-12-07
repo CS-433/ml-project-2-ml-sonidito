@@ -20,10 +20,9 @@ class SimpleLSTM(nn.Module):
         self.fc = nn.Linear(hidden_size, 1)
 
     def forward(self, input):
-        
-        output, _ = self.lstm(torch.swapaxes(input, -1,-2)) # (batch, seq size, input_size)
+
+        output, _ = self.lstm(input) # (batch, seq size, input_size)
         output = self.fc(output)
-        output = output.squeeze()
-        output = torch.sigmoid(output)
+        output = output.squeeze(-1) # NOTE : No sigmoid, use LogitsLoss !
 
         return output
