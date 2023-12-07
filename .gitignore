@@ -1,0 +1,7 @@
+/data
+
+# jupyter notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+__pycache__/
