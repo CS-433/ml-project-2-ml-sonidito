@@ -15,13 +15,15 @@ class SimpleLSTM(nn.Module):
         self.lstm = nn.LSTM(input_size = input_size, 
                             hidden_size = hidden_size,
                             num_layers = num_layers,
-                            dropout = dropout_rate)
+                            dropout = dropout_rate,
+                            batch_first=True)
         
         self.fc = nn.Linear(hidden_size, 1)
 
     def forward(self, input):
-        output, h = self.lstm(input)
+        output, (h, c) = self.lstm(input)
         output = self.fc(output)
         output = torch.sigmoid(output)
+        output = output.squeeze()
 
         return output
