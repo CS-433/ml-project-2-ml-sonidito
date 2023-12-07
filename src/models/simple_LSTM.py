@@ -1,7 +1,6 @@
 import torch.nn as nn
 import torch
 
-
 class SimpleLSTM(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, dropout_rate = 0):
 
@@ -21,9 +20,10 @@ class SimpleLSTM(nn.Module):
         self.fc = nn.Linear(hidden_size, 1)
 
     def forward(self, input):
-        output, (h, c) = self.lstm(input)
+        
+        output, _ = self.lstm(torch.swapaxes(input, -1,-2)) # (batch, seq size, input_size)
         output = self.fc(output)
-        output = torch.sigmoid(output)
         output = output.squeeze()
+        output = torch.sigmoid(output)
 
         return output
