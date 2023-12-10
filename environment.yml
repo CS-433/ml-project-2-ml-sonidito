@@ -1,6 +1,7 @@
 name: ml_project2
 channels:
   - defaults
+  - conda-forge
 dependencies:
   - jupyterlab
   - matplotlib
