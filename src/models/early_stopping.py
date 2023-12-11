@@ -12,12 +12,18 @@ class EarlyStopping:
         if loss < self.min_loss:
             self.min_loss = loss
             self.counter = 0
-        elif loss > (self.min_loss + self.delta):
+        elif loss - self.min_loss > self.delta:
             self.counter += 1
             if self.counter >= self.patience:
                 return True
-            
+       
         return False
+            
+    def __str__(self):
+        return  'EarlyStopping(\n' \
+               f'    patience : {self.patience}\n' \
+               f'    delta : {self.delta}\n'\
+                ')'\
             
 
         
