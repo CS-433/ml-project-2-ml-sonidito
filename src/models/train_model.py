@@ -7,7 +7,7 @@ def train(model,train_loader, val_loader, optimizer, criterion, device,
             n_epochs = 10, early_stopping = None, l1_sigma=0):
 
     model.to(device)
-    
+
     train_losses = []
     val_losses = []
 
@@ -24,7 +24,7 @@ def train(model,train_loader, val_loader, optimizer, criterion, device,
             if early_stopping.early_stop(eval_loss):
                 break
     
-    plot_losses(train_losses, val_losses, n_epochs)
+    plot_losses(train_losses, val_losses)
 
 def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device):
     model.train()
