@@ -1,4 +1,5 @@
 import torch
+from tqdm.autonotebook import tqdm
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 import glob
@@ -11,31 +12,43 @@ from scipy.ndimage import gaussian_filter
 import matplotlib.pyplot as plt
 
 class DummyDataset(Dataset):
-    def __init__(self, data_path,  transform=None, max_length = None):
+    def __init__(self, data_path, features_selection, transform=None, max_length = None):
+        """
+        param:
+            - features_selection : select which features to used for the training, 0 is the max_energy 1 to 6 is the mode
+        """
+        
         self.data_path = data_path
         self.all_shots = [int(os.path.basename(x.split(f".pickle")[0])) 
              for x in glob.glob(os.path.join(data_path, f"*.pickle"))]
         
         self.transform = transform
         self.max_length = max_length
+        self.features_selection = features_selection
 
         self.inputs = []
         self.labels = []
 
-        for shotno in self.all_shots :
-            data = self.load_shot(shotno)
-            input, label = self.process_data(data)
+        with tqdm(self.all_shots) as pbar:
+            pbar.set_description('data processing')
+            for shotno in pbar :
+                data = self.load_shot(shotno)
+                input, label = self.process_data(data)
 
-            self.inputs.append(input)
-            self.labels.append(label)
+                self.inputs.append(input)
+                self.labels.append(label)
 
 
     def __len__(self):
         return len(self.all_shots)
 
     def __getitem__(self, idx):
-        return self.inputs[idx], self.labels[idx]
+        input = self.inputs[idx][:, self.features_selection]
+        if len(input.shape) == 1:
+            input = input.unsqueeze(-1)
 
+        return input, self.labels[idx]
+        # return self.inputs[idx][:,0].unsqueeze(-1), self.labels[idx]
     def load_shot(self, shotno):
         with open(os.path.join(self.data_path, f"{shotno}.pickle"), "rb") as f:
             return pickle.load(f)
@@ -104,25 +117,29 @@ class DummyDataset(Dataset):
 
         labels = self.compute_labels(max_energies)
 
+        modes = data['y']['modes']
+        input = max_energies.float()
+
+        for i in range(5):
+            mode = torch.from_numpy(modes[f'N{i}'])
+            mode[torch.isnan(mode)] = 0
+            mode = self.compute_mode(mode, len(max_energies))
+
+            input = torch.vstack((input, mode.float()))
+
+        input = input.swapaxes(0,1)
+
         if self.max_length != None:
             if len(labels) > self.max_length:
                 labels = labels[:self.max_length]
-                max_energies = max_energies[:self.max_length]
+                input = input[:self.max_length, :]
             elif len(labels) < self.max_length:
-                temp = torch.zeros(self.max_length)
-                temp[:max_energies.size(0)] = max_energies
-                max_energies = temp
+                temp = torch.zeros((self.max_length, input.size(1)))
+                temp[:input.size(0), :] = input
+                input = temp
 
                 temp = torch.zeros(self.max_length)
                 temp[:labels.size(0)] = labels
                 labels = temp
 
-        mode_n1 = torch.from_numpy(data['y']['modes']['N1'])
-        mode_n1[torch.isnan(mode_n1)] = 0
-
-        mode_n1 = self.compute_mode(mode_n1, len(max_energies))
-
-        input = torch.vstack((max_energies.float(), mode_n1.float()))
-        input = input.swapaxes(0,1)
-        
         return input, labels
