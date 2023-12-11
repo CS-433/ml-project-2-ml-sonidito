@@ -18,15 +18,44 @@ class DummyDataset(Dataset):
         
         self.transform = transform
         self.max_length = max_length
-        
+
+        self.inputs = []
+        self.labels = []
+
+        for shotno in self.all_shots :
+            data = self.load_shot(shotno)
+            input, label = self.process_data(data)
+
+            self.inputs.append(input)
+            self.labels.append(label)
+
 
     def __len__(self):
         return len(self.all_shots)
 
     def __getitem__(self, idx):
-        shotno = self.all_shots[idx]
-        data = self.load_shot(shotno)
-        spec_odd =  data['x']['spectrogram']['OddN']
+        return self.inputs[idx], self.labels[idx]
+
+    def load_shot(self, shotno):
+        with open(os.path.join(self.data_path, f"{shotno}.pickle"), "rb") as f:
+            return pickle.load(f)
+    
+    def compute_labels(self, max_energies, threshold=0.8):
+        """
+            Create pseudo label by thresholding the energy
+        """
+        start = np.argmax(max_energies > threshold)
+        end = len(max_energies) - torch.argmax(torch.flip(max_energies > threshold, dims=(0,)) * 1)
+ 
+        labels = torch.zeros(len(max_energies))
+        labels[start:end] = 1
+
+        return labels
+    
+    def compute_max_energy(self, spec_odd) : 
+        """
+            Search the max energy of the spectogram by selecting the max value of each timestamp
+        """
 
         if self.transform != None:
             spec_odd = self.transform(spec_odd)
@@ -38,12 +67,42 @@ class DummyDataset(Dataset):
         std, mean = torch.std_mean(spec_odd[mask])
         spec_odd[~mask] = mean
 
-        max_energies = self.compute_max_energies((spec_odd - mean) / std)
+        spec_odd = (spec_odd - mean) / std
+
+        max_energies, _ = torch.max(torch.from_numpy(gaussian_filter(spec_odd, 10)).squeeze(), dim = 1)
+        max = torch.max(max_energies)
+        max_energies = torch.from_numpy(gaussian_filter(max_energies / max, 10)).squeeze()
+
+        return max_energies
+    
+    def compute_mode(self, mode, size) : 
+        """
+            Process the mode value, normalize and scale the value to have value between [0,1]
+        """        
+        mode = self.normalize_mode(mode)
+        mode = mode / mode.max()
+        mode = F.interpolate(mode.unsqueeze(0).unsqueeze(0), size=size).squeeze()
+
+        return mode
+
+    def normalize_mode(self, mode_val):
+        std, mean = torch.std_mean(mode_val)
+
+        return (mode_val - mean) / std
+    
+    def process_data(self, data) : 
+        """
+            Process the data
+
+            return :
+                - input : data used for the training
+                - label : (#len(data), *) list of bool indicating if the corresponding timestamp has a perturbation
+        """
+
+        spec_odd =  data['x']['spectrogram']['OddN']
+        max_energies = self.compute_max_energy(spec_odd)
 
         labels = self.compute_labels(max_energies)
-
-        mode_n1 = torch.from_numpy(data['y']['modes']['N1'])
-        mode_n1[torch.isnan(mode_n1)] = 0
 
         if self.max_length != None:
             if len(labels) > self.max_length:
@@ -58,43 +117,12 @@ class DummyDataset(Dataset):
                 temp[:labels.size(0)] = labels
                 labels = temp
 
+        mode_n1 = torch.from_numpy(data['y']['modes']['N1'])
+        mode_n1[torch.isnan(mode_n1)] = 0
 
-        mode_n1 = self.normalize_mode(mode_n1)
-        mode_n1 = F.interpolate(mode_n1.unsqueeze(0).unsqueeze(0), size=len(max_energies)).squeeze()
-        # mode_n1 = torch.from_numpy(gaussian_filter(mode_n1, sigma=10))
+        mode_n1 = self.compute_mode(mode_n1, len(max_energies))
 
         input = torch.vstack((max_energies.float(), mode_n1.float()))
         input = input.swapaxes(0,1)
-
-        # return torch.from_numpy(gaussian_filter(torch.mean(spec_odd, dim=-1),10)).float().unsqueeze(-1), labels
-        # return spec_odd, labels
-        return input, labels
-        # return max_energies.float().unsqueeze(-1), labels
-
-    def load_shot(self, shotno):
-        with open(os.path.join(self.data_path, f"{shotno}.pickle"), "rb") as f:
-            return pickle.load(f)
-
-    def compute_max_energies(self, spec):
-        max_values, _ = torch.max(torch.from_numpy(gaussian_filter(spec, 10)).squeeze(), dim = 1)
-        max = torch.max(max_values)
-        max_values = torch.from_numpy(gaussian_filter(max_values / max, 10)).squeeze()
-
-        return max_values
-    
-    def compute_labels(self, max_energies, threshold=0.8):
-        start = np.argmax(max_energies > threshold)
-        end = len(max_energies) - torch.argmax(torch.flip(max_energies > threshold, dims=(0,)) * 1)
- 
-        labels = torch.zeros(len(max_energies))
-        labels[start:end] = 1
-
-        return labels
-
-    def normalize_mode(self, mode_val):
-        std, mean = torch.std_mean(mode_val)
-
-        return (mode_val - mean) / std
-    
-
         
+        return input, labels
