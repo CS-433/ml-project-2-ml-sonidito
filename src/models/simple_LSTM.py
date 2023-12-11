@@ -16,25 +16,23 @@ class SimpleLSTM(nn.Module):
                             num_layers = num_layers,
                             dropout = dropout_rate,
                             batch_first=True)
-        
-        self.dropout = nn.Dropout()
-        
+                
         self.fc = nn.Sequential()
+
+        # Create fully connected
         current_size = hidden_size
         while current_size > 8:
             self.fc.append(nn.Linear(current_size, current_size//2))
             self.fc.append(nn.LeakyReLU())
             current_size = current_size // 2
+
         self.fc.append(nn.Linear(current_size, 1))
-        
-        # self.fc = nn.Linear(hidden_size, 1)
-                            
+                                    
 
     def forward(self, input):
         # print(f'input.shape={input.shape}')
         output, _ = self.lstm(input) # Input : (batch, seq size, input_size) , output : (batch, seq size, hidden size)
         # print(f'after lstm output.shape={output.shape}')
-        # output = self.dropout(output)
         output = self.fc(output)
         # print(f'after fc output.shape={output.shape}')
         output = output.squeeze(-1) # NOTE : No sigmoid, use LogitsLoss !
