@@ -64,7 +64,7 @@ class SpectrogramDataset(Dataset):
         - window_dict (dict): A dictionary containing information about the window.
         """
         found_dict = next((my_dict for my_dict in self.windows if my_dict.get('unique_id') == idx), None)
-        window_dict = {key: [value] for key, value in found_dict.items()}
+        window_dict = {key: value for key, value in found_dict.items()}
         return window_dict
 
     def load_shot(self, shotno):
