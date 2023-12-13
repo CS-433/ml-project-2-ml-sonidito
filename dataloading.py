@@ -3,12 +3,12 @@ import pandas as pd
 import numpy as np
 import glob
 import torch
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, utils, transforms
-import matplotlib.pyplot as plt
+from torch.utils.data import Dataset
+from torchvision import transforms
+from scipy.ndimage import gaussian_filter
 
 class SpectrogramDataset(Dataset):
-    def __init__(self, data_path, file_ext, window_size, transform=None, time_step=5.12e-4, overlap_factor = 0):
+    def __init__(self, data_path, file_ext, window_size, transform=None, time_step=5.12e-4, overlap_factor=0):
         """
         SpectrogramDataset constructor.
 
@@ -43,7 +43,7 @@ class SpectrogramDataset(Dataset):
         self.data_files = [int(os.path.basename(x.split(f".{file_ext}")[0]))
                            for x in glob.glob(os.path.join(data_path, f"*.{file_ext}"))]
 
-        # Precompute and store all windows with unique IDs using a dictionnary
+        # Precompute and store all windows with unique IDs using a dictionary
         self.windows = self.compute_all_windows()
 
     def __len__(self):
@@ -51,7 +51,6 @@ class SpectrogramDataset(Dataset):
         Returns the total number of windows in the dataset.
         """
         return len(self.windows)
-    
 
     def __getitem__(self, idx):
         """
@@ -78,8 +77,105 @@ class SpectrogramDataset(Dataset):
         - data_shot (pd.DataFrame): Data for the specified experiment.
         """
         file_path = os.path.join(self.data_path, f"{shotno}.{self.file_ext}")
-        return pd.read_pickle(file_path)
+        data_shot = pd.read_pickle(file_path)
+
+        # Load odd spectrogram data
+        spec_odd = torch.tensor(data_shot["x"]["spectrogram"]["OddN"], dtype=torch.float32).T
+
+        # Apply normalization transformation if transform is True
+        if self.transform:
+            normalized_spec_odd = spec_odd / torch.max(spec_odd)
+            data_shot["x"]["spectrogram"]["OddN"] = normalized_spec_odd.T.numpy()
+
+        return data_shot
+
+    def get_start_end_longest_mode(self, label_sources, std_factor=0.25, mean_factor=0.8):
+        """
+        Compute the start and end times of the longest mode segment.
+
+        Parameters:
+        - label_sources (dict): Dictionary containing mode information.
+        - std_factor (float): Standard deviation factor for adaptive thresholding.
+        - mean_factor (float): Mean factor for adaptive thresholding.
+
+        Returns:
+        - start_longest_mode (float): Start time of the longest mode segment.
+        - end_longest_mode (float): End time of the longest mode segment.
+        """
+        # Stack modes vertically and interpolate NaN values
+        modes_stacked = np.vstack([label_sources[f"N{i}"] for i in range(5)])
+        nan_indices = np.isnan(modes_stacked)
+        modes_stacked[nan_indices] = np.interp(np.flatnonzero(nan_indices), np.flatnonzero(~nan_indices),
+                                               modes_stacked[~nan_indices])
+
+        # Normalize each mode to have a max value of 1
+        modes_stacked /= np.max(modes_stacked, axis=1, keepdims=True)
+
+        # Sum along axis 0
+        modes = np.sum(modes_stacked, axis=0)
+
+        # Applying Gaussian filter
+        filtered_modes = gaussian_filter(modes, sigma=45)
+
+        # Calculate adaptive threshold based on the filtered modes
+        mode_thresh = self.compute_adaptive_threshold(filtered_modes, std_factor, mean_factor)
+
+        # Find the longest mode segment above the threshold
+        above_threshold = filtered_modes > mode_thresh
+        change_points = np.diff(above_threshold).nonzero()[0] + 1
+        if above_threshold[0]:
+            change_points = np.insert(change_points, 0, 0)
+        if above_threshold[-1]:
+            change_points = np.append(change_points, len(above_threshold))
+
+        segment_lengths = change_points[1::2] - change_points[::2]
+        if len(segment_lengths) > 0:
+            longest_segment_index = np.argmax(segment_lengths)
+            start_longest_mode = label_sources["time"][change_points[2 * longest_segment_index]]
+            end_longest_mode = label_sources["time"][change_points[2 * longest_segment_index + 1]]
+
+            return start_longest_mode, end_longest_mode
+        else:
+            return None, None
+
+    def compute_adaptive_threshold(self, modes, std_factor, mean_factor):
+        """
+        Compute adaptive threshold for mode segmentation.
+
+        Parameters:
+        - modes (np.ndarray): Mode values.
+        - std_factor (float): Standard deviation factor for adaptive thresholding.
+        - mean_factor (float): Mean factor for adaptive thresholding.
+
+        Returns:
+        - threshold (float): Adaptive threshold.
+        """
+        if np.all(np.isnan(modes)):
+            return np.nan  # Return NaN if all values are NaN
+        if np.std(modes) == 0:
+            return np.nan  # Return NaN if standard deviation is zero
+        mean_val = np.nanmean(modes)  # Use nanmean to ignore NaN values
+        std_dev = np.nanstd(modes)  # Use nanstd to ignore NaN values
+
+        return mean_factor * mean_val + std_factor * std_dev
     
+    def normalize_spectrogram(self, data_shot):
+        """
+        Normalize each spectrogram for an experiment.
+
+        Parameters:
+        - data_shot (pd.DataFrame): Data for a specific experiment.
+
+        Returns:
+        - normalized_data_shot (pd.DataFrame): Normalized data for the specified experiment.
+        """
+        for key, value in data_shot['x'].items():
+            if 'spectrogram' in key:
+                # Normalize each spectrogram
+                data_shot['x'][key] = value / np.max(value)
+
+        return data_shot
+
     def compute_all_windows(self, overlap_factor=0):
         """
         Computes all windows with unique IDs for the dataset.
@@ -95,7 +191,7 @@ class SpectrogramDataset(Dataset):
             data_shot = self.load_shot(shotno)
 
             spec_odd = torch.tensor(data_shot["x"]["spectrogram"]["OddN"], dtype=torch.float32).T
-        
+
             frequency = data_shot["x"]["spectrogram"]["frequency"]
             time = data_shot["x"]["spectrogram"]["time"]
 
@@ -106,29 +202,37 @@ class SpectrogramDataset(Dataset):
 
                 slice_data = spec_odd[:, start_idx:end_idx]
 
-                windows.append({
-                    'unique_id': unique_id,
-                    'window_odd': slice_data, # The odd spectrogram
-                    'frequency': frequency,
-                    'time': time[start_idx:end_idx],
-                    'start_idx': start_idx,
-                    'end_idx': end_idx,
-                    'shotno': shotno
-                })
-                
+                # Calculate labels for each time stamp in the experiment
+                start_longest_mode, end_longest_mode = self.get_start_end_longest_mode(data_shot['y']['modes'])
+                labels = np.zeros_like(time)
+                if start_longest_mode is not None and end_longest_mode is not None:
+                    in_longest_mode = (time >= start_longest_mode) & (time <= end_longest_mode)
+                    labels[in_longest_mode] = 1
 
-                unique_id += 1
+                    # Check if 50% or more of the window's points have a label of 1
+                    window_label = 1 if np.mean(labels[start_idx:end_idx]) >= 0.5 else 0
+
+                    windows.append({
+                        'unique_id': unique_id,
+                        'window_odd': slice_data,  # The odd spectrogram
+                        'frequency': frequency,
+                        'time': time[start_idx:end_idx],
+                        'start_idx': start_idx,
+                        'end_idx': end_idx,
+                        'shotno': shotno,
+                        'label': window_label
+                    })
+
+                    unique_id += 1
 
         # Print information about the generated windows
         total_windows = len(windows)
-        print(f"The size of the odd spectrogram in the last element of windows: {windows[total_windows-1]['window_odd'].shape}.")
+        print(f"The size of the odd spectrogram in the last element of windows: {windows[total_windows - 1]['window_odd'].shape}.")
         print(f"Total number of windows = {total_windows}")
         print(f"Number of unique IDs = {unique_id}")
 
         return windows
-    
+
 # Custom collate function
 def custom_collate(batch):
-    return batch    
-
-
+    return batch
