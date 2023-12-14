@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import pandas as pd
 import glob
 import torch
 import hickle
@@ -9,18 +10,23 @@ from tqdm.notebook import tqdm
 
 
 class SpectrogramDataset(Dataset):
-    def __init__(self, data_path, file_ext, window_size, transform=None, time_step=5.12e-4, overlap=0, shot_filter=None):
+    def __init__(self, data_path, file_ext, data_path_labels, file_ext_labels, window_size, transform=None,
+                 time_step=5.12e-4, overlap=0, shot_filter=None,
+                 pseudo_labels=False):
         """
         SpectrogramDataset constructor.
 
         Parameters:
         - data_path (str): Location of the data.
         - file_ext (str): File type of the data.
+        - data_path_labels (str): Location of the labels.
+        - file_ext_labels (str): File type of the labels.
         - window_size (int): Number of time steps in each window.
         - transform (callable): Optional transform to be applied on a window.
         - time_step (float): Duration of each time step in ms.
         - overlap (float): Fraction of overlap between consecutive windows (0 to 1).
         - shot_filter (list): List of shot numbers to include in the dataset.
+        - pseudo_labels (bool): Whether to use pseudo labels or not.
 
         Attributes:
         - data_path (str): Location of the data.
@@ -30,20 +36,24 @@ class SpectrogramDataset(Dataset):
         - time_step (float): Duration of each time step in ms.
         - overlap (float): Fraction of overlap between consecutive windows (0 to 1).
         - window_step (int): Step size for moving the window.
+        - pseudo_labels (bool): Whether to use pseudo labels or not.
 
         Initializes the dataset by obtaining all shot numbers and precomputing all windows with unique IDs.
         """
         self.data_path = data_path
         self.file_ext = file_ext
+        self.data_path_labels = data_path_labels
+        self.file_ext_labels = file_ext_labels
         self.window_size = window_size
         self.transform = transform
         self.time_step = time_step
         self.overlap = overlap
         self.window_step = int(self.window_size * (1 - overlap))  # Step size for moving the window
+        self.pseudo_labels = pseudo_labels
 
         # Retrieve all shot numbers
         shotnos = [int(os.path.basename(x.split(f".{file_ext}")[0]))
-                        for x in glob.glob(os.path.join(data_path, f"*.{file_ext}"))]
+                   for x in glob.glob(os.path.join(data_path, f"*.{file_ext}"))]
         # Apply shot mask if provided (to split the shots into train/val/test sets)
         if shot_filter is not None:
             shotnos = [shotnos[i] for i in shot_filter]
@@ -93,13 +103,22 @@ class SpectrogramDataset(Dataset):
         - data_shot (pd.DataFrame): Data for the specified experiment.
         """
         with open(os.path.join(self.data_path, f"{shotno}.{self.file_ext}"), "rb") as f:
-            # file_path = os.path.join(self.data_path, f"{shotno}.{self.file_ext}")
             try:
                 data_shot = hickle.load(f)  # pd.read_pickle(file_path)
             except Exception as e:
                 print(f"Error loading shot {shotno}: {e}")
 
             return data_shot
+
+    def load_shot_label(self, shotno):
+        with open(os.path.join(self.data_path_labels, f"TCV_{shotno}_apau_MHD_labeled.{self.file_ext_labels}"),
+                  "rb") as f:
+            try:
+                shot_label = pd.read_csv(f)
+            except Exception as e:
+                print(f"Error loading shot label {shotno}: {e}")
+
+        return shot_label
 
     def get_start_end_longest_mode(self, label_sources, std_factor=0.25, mean_factor=0.8):
         """
@@ -184,11 +203,16 @@ class SpectrogramDataset(Dataset):
         # For each experiment
         for shotno in tqdm(self.shotnos, desc="Processing dataset"):
             data_shot = self.load_shot(shotno)
+            shot_labels = self.load_shot_label(shotno)
 
             spec_odd = data_shot["x"]["spectrogram"]["OddN"].T
 
             frequency = data_shot["x"]["spectrogram"]["frequency"]
             time = data_shot["x"]["spectrogram"]["time"]
+
+            instabilities = self.find_instabilities(shot_labels)
+            labels = np.zeros_like(time)
+            print(f"shot: {shotno}, len(instabilities) = {len(instabilities)}, len(labels) = {len(labels)}")
 
             # Compute sliding windows for OddN with overlap
             for i in range(0, len(time) - self.window_size + 1, self.window_step):
@@ -198,15 +222,40 @@ class SpectrogramDataset(Dataset):
                 slice_data = spec_odd[:800, start_idx:end_idx]
 
                 # Calculate labels for each time stamp in the experiment
-                start_longest_mode, end_longest_mode = self.get_start_end_longest_mode(data_shot['y']['modes'])
-                labels = np.zeros_like(time)
+                if self.pseudo_labels:
+                    start_longest_mode, end_longest_mode = self.get_start_end_longest_mode(data_shot['y']['modes'])
+                    labels = np.zeros_like(time)
 
-                if start_longest_mode is not None and end_longest_mode is not None:
-                    in_longest_mode = (time >= start_longest_mode) & (time <= end_longest_mode)
-                    labels[in_longest_mode] = 1
+                    if start_longest_mode is not None and end_longest_mode is not None:
+                        in_longest_mode = (time >= start_longest_mode) & (time <= end_longest_mode)
+                        labels[in_longest_mode] = 1
 
-                    # Check if 50% or more of the window's points have a label of 1
-                    window_label = torch.tensor([1]) if np.mean(labels[start_idx:end_idx]) >= 0.5 else torch.tensor([0])
+                        # Check if 50% or more of the window's points have a label of 1
+                        window_label = torch.tensor([1]) if np.mean(labels[start_idx:end_idx]) >= 0.5 else torch.tensor(
+                            [0])
+
+                        windows.append({
+                            'unique_id': unique_id,
+                            'window_odd': slice_data,  # odd spectrogram slice
+                            'frequency': frequency,
+                            'time': time[start_idx:end_idx],
+                            'start_idx': start_idx,
+                            'end_idx': end_idx,
+                            'shotno': shotno,
+                            'label': window_label
+                        })
+
+                        unique_id += 1
+
+                else:
+                    # Iterate through each instability and mark the corresponding times
+                    for i, (start_time, end_time) in enumerate(instabilities):
+                        idx_mode = (time >= start_time) & (time <= end_time)
+                        labels[idx_mode] = 1
+
+                    # Calculate the label for the window
+                    window_label = torch.tensor([1]) if np.mean(labels[start_idx:end_idx]) >= 0.5 else torch.tensor(
+                        [0])
 
                     windows.append({
                         'unique_id': unique_id,
@@ -227,6 +276,38 @@ class SpectrogramDataset(Dataset):
         print(f"Number of unique IDs = {unique_id}")
 
         return windows
+
+    def find_instabilities(self, df):
+        """
+        Function to find the start and end times of instabilities in a dataframe.
+
+        Parameters:
+        df (pd.DataFrame): DataFrame with 'time' and 'MHD_label' columns.
+
+        Returns:
+        list: List of tuples with the start and end times of each instability.
+        """
+        # convert MHD_label value to [0, 1]
+        df['MHD_label'] = df['MHD_label'].replace({1: 0, 2: 1})
+
+        # find the transitions
+        transitions = df['MHD_label'].ne(df['MHD_label'].shift())
+
+        # extract start and end times of instabilities
+        instabilities = []
+        start_time = None
+
+        for i in transitions[transitions].index:
+            if df.loc[i, 'MHD_label'] == 1:
+                # start of instability
+                start_time = df.loc[i, 'time']
+            elif start_time is not None:
+                # end of instability
+                end_time = df.loc[i, 'time']
+                instabilities.append((start_time, end_time))
+                start_time = None  # reset start_time for next instability
+
+        return instabilities
 
 
 # transform helper function to convert single channel tensor to 3-channel tensor
