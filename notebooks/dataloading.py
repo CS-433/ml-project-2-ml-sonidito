@@ -1,16 +1,15 @@
 import os
-import pandas as pd
 import numpy as np
 import glob
 import torch
-from PIL import Image
+import hickle
 from torch.utils.data import Dataset
-from torchvision import transforms
 from scipy.ndimage import gaussian_filter
 from tqdm.notebook import tqdm
 
+
 class SpectrogramDataset(Dataset):
-    def __init__(self, data_path, file_ext, window_size, transform=None, time_step=5.12e-4, overlap_factor=0):
+    def __init__(self, data_path, file_ext, window_size, transform=None, time_step=5.12e-4, overlap=0):
         """
         SpectrogramDataset constructor.
 
@@ -20,7 +19,7 @@ class SpectrogramDataset(Dataset):
         - window_size (int): Number of time steps in each window.
         - transform (callable): Optional transform to be applied on a window.
         - time_step (float): Duration of each time step in ms.
-        - overlap_factor (float): Fraction of overlap between consecutive windows (0 to 1).
+        - overlap (float): Fraction of overlap between consecutive windows (0 to 1).
 
         Attributes:
         - data_path (str): Location of the data.
@@ -28,7 +27,7 @@ class SpectrogramDataset(Dataset):
         - window_size (int): Number of time steps in each window.
         - transform (callable): Optional transform to be applied on a window.
         - time_step (float): Duration of each time step in ms.
-        - overlap_factor (float): Fraction of overlap between consecutive windows (0 to 1).
+        - overlap (float): Fraction of overlap between consecutive windows (0 to 1).
         - window_step (int): Step size for moving the window.
 
         Initializes the dataset by obtaining all shot numbers and precomputing all windows with unique IDs.
@@ -38,14 +37,14 @@ class SpectrogramDataset(Dataset):
         self.window_size = window_size
         self.transform = transform
         self.time_step = time_step
-        self.overlap_factor = overlap_factor
-        self.window_step = int(self.window_size * (1 - overlap_factor))  # Step size for moving the window
+        self.overlap = overlap
+        self.window_step = int(self.window_size * (1 - overlap))  # Step size for moving the window
 
-        # Obtain all shot numbers
-        self.data_files = [int(os.path.basename(x.split(f".{file_ext}")[0]))
-                           for x in glob.glob(os.path.join(data_path, f"*.{file_ext}"))]
+        # Retrieve all shot numbers
+        self.shotnos = [int(os.path.basename(x.split(f".{file_ext}")[0]))
+                        for x in glob.glob(os.path.join(data_path, f"*.{file_ext}"))]
 
-        # Precompute and store all windows with unique IDs using a dictionary
+        # Precompute and store all windows with unique IDs using a list of dicts
         self.windows = self.compute_all_windows()
 
     def __len__(self):
@@ -65,7 +64,17 @@ class SpectrogramDataset(Dataset):
         - window_dict (dict): A dictionary containing information about the window.
         """
         found_dict = next((my_dict for my_dict in self.windows if my_dict.get('unique_id') == idx), None)
-        window_dict = {key: value for key, value in found_dict.items()}
+        if found_dict is None:
+            raise KeyError(f"Item with unique_id {idx} not found.")
+
+        window_dict = found_dict.copy()
+
+        # normalize and resize the spectrogram slice
+        if self.transform:
+            window_dict['window_odd'] = self.transform(window_dict['window_odd']).float()
+
+        window_dict['label'] = window_dict['label'].float()
+
         return window_dict
 
     def load_shot(self, shotno):
@@ -78,10 +87,14 @@ class SpectrogramDataset(Dataset):
         Returns:
         - data_shot (pd.DataFrame): Data for the specified experiment.
         """
-        file_path = os.path.join(self.data_path, f"{shotno}.{self.file_ext}")
-        data_shot = pd.read_pickle(file_path)
+        with open(os.path.join(self.data_path, f"{shotno}.{self.file_ext}"), "rb") as f:
+            # file_path = os.path.join(self.data_path, f"{shotno}.{self.file_ext}")
+            try:
+                data_shot = hickle.load(f)  # pd.read_pickle(file_path)
+            except Exception as e:
+                print(f"Error loading shot {shotno}: {e}")
 
-        return data_shot
+            return data_shot
 
     def get_start_end_longest_mode(self, label_sources, std_factor=0.25, mean_factor=0.8):
         """
@@ -153,8 +166,7 @@ class SpectrogramDataset(Dataset):
 
         return mean_factor * mean_val + std_factor * std_dev
 
-
-    def compute_all_windows(self, overlap_factor=0):
+    def compute_all_windows(self, overlap=0):
         """
         Computes all windows with unique IDs for the dataset.
 
@@ -165,7 +177,7 @@ class SpectrogramDataset(Dataset):
         unique_id = 0
 
         # For each experiment
-        for shotno in tqdm(self.data_files, desc="Processing shots"):
+        for shotno in tqdm(self.shotnos, desc="Processing dataset"):
             data_shot = self.load_shot(shotno)
 
             spec_odd = data_shot["x"]["spectrogram"]["OddN"].T
@@ -178,17 +190,12 @@ class SpectrogramDataset(Dataset):
                 start_idx = i
                 end_idx = i + self.window_size
 
-                slice_data = spec_odd[:, start_idx:end_idx]
-
-                # Normalize and resize each slice
-                if self.transform:
-                    #print(f"slice_data.shape = {slice_data.shape}")
-                    slice_data = self.transform(slice_data)
-                    #print(f"slice_data.shape = {slice_data.shape}")
+                slice_data = spec_odd[:800, start_idx:end_idx]
 
                 # Calculate labels for each time stamp in the experiment
                 start_longest_mode, end_longest_mode = self.get_start_end_longest_mode(data_shot['y']['modes'])
                 labels = np.zeros_like(time)
+
                 if start_longest_mode is not None and end_longest_mode is not None:
                     in_longest_mode = (time >= start_longest_mode) & (time <= end_longest_mode)
                     labels[in_longest_mode] = 1
@@ -198,7 +205,7 @@ class SpectrogramDataset(Dataset):
 
                     windows.append({
                         'unique_id': unique_id,
-                        'window_odd': slice_data,  # The odd spectrogram
+                        'window_odd': slice_data,  # odd spectrogram slice
                         'frequency': frequency,
                         'time': time[start_idx:end_idx],
                         'start_idx': start_idx,
@@ -210,13 +217,13 @@ class SpectrogramDataset(Dataset):
                     unique_id += 1
 
         # Print information about the generated windows
-        total_windows = len(windows)
-        print(f"The size of the odd spectrogram in the last element of windows: {windows[total_windows - 1]['window_odd'].shape}.")
-        print(f"Total number of windows = {total_windows}")
+        print(f"Last odd spectrogram slice shape: {windows[-1]['window_odd'].shape}")
+        print(f"Total number of windows = {len(windows)}")
         print(f"Number of unique IDs = {unique_id}")
 
         return windows
 
-# Custom collate function
-def custom_collate(batch):
-    return batch
+
+# transform helper function to convert single channel tensor to 3-channel tensor
+def repeat_channels(x):
+    return x.repeat(3, 1, 1)
