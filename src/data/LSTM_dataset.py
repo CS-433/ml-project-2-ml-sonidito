@@ -7,18 +7,21 @@ import pickle
 import os
 import numpy as np
 from scipy.ndimage import gaussian_filter
+from itertools import groupby
+
 
 
 import matplotlib.pyplot as plt
 
-class DummyDataset(Dataset):
-    def __init__(self, data_path, features_selection, transform=None, max_length = None):
+class LSTMDataset(Dataset):
+    def __init__(self, data_path, labels_path,  features_selection, transform=None, max_length = None):
         """
         param:
             - features_selection : select which features to used for the training, 0 is the max_energy 1 to 6 is the mode
         """
         
         self.data_path = data_path
+        self.labels_path = labels_path
         self.all_shots = [int(os.path.basename(x.split(f".pickle")[0])) 
              for x in glob.glob(os.path.join(data_path, f"*.pickle"))]
         
@@ -33,9 +36,11 @@ class DummyDataset(Dataset):
             pbar.set_description('data processing')
             for shotno in pbar :
                 data = self.load_shot(shotno)
-                input, label = self.process_data(data)
+                features = self.process_data(data)
 
-                self.inputs.append(input)
+                label = self.process_labels(shotno, torch.tensor(data['x']['spectrogram']['time']))
+
+                self.inputs.append(features)
                 self.labels.append(label)
 
 
@@ -53,25 +58,22 @@ class DummyDataset(Dataset):
         with open(os.path.join(self.data_path, f"{shotno}.pickle"), "rb") as f:
             return pickle.load(f)
     
-    def compute_labels(self, max_energies, threshold=0.8):
-        """
-            Create pseudo label by thresholding the energy
-        """
-        start = np.argmax(max_energies > threshold)
-        end = len(max_energies) - torch.argmax(torch.flip(max_energies > threshold, dims=(0,)) * 1)
+    # def compute_labels(self, max_energies, threshold=0.8):
+    #     """
+    #         Create pseudo label by thresholding the energy
+    #     """
+    #     start = np.argmax(max_energies > threshold)
+    #     end = len(max_energies) - torch.argmax(torch.flip(max_energies > threshold, dims=(0,)) * 1)
  
-        labels = torch.zeros(len(max_energies))
-        labels[start:end] = 1
+    #     labels = torch.zeros(len(max_energies))
+    #     labels[start:end] = 1
 
-        return labels
+    #     return labels
     
     def compute_max_energy(self, spec_odd) : 
         """
             Search the max energy of the spectogram by selecting the max value of each timestamp
         """
-
-        if self.transform != None:
-            spec_odd = self.transform(spec_odd)
 
         mask = ~torch.isinf(spec_odd) & ~torch.isnan(spec_odd)
 
@@ -113,9 +115,13 @@ class DummyDataset(Dataset):
         """
 
         spec_odd =  data['x']['spectrogram']['OddN']
+
+        if self.transform != None:
+            spec_odd = self.transform(spec_odd)
+
         max_energies = self.compute_max_energy(spec_odd)
 
-        labels = self.compute_labels(max_energies)
+        # labels = self.process_labels()
 
         modes = data['y']['modes']
         input = max_energies.float()
@@ -130,16 +136,49 @@ class DummyDataset(Dataset):
         input = input.swapaxes(0,1)
 
         if self.max_length != None:
-            if len(labels) > self.max_length:
-                labels = labels[:self.max_length]
+            if len(input) > self.max_length:
+                # labels = labels[:self.max_length]
                 input = input[:self.max_length, :]
-            elif len(labels) < self.max_length:
+            elif len(input) < self.max_length:
                 temp = torch.zeros((self.max_length, input.size(1)))
                 temp[:input.size(0), :] = input
                 input = temp
 
-                temp = torch.zeros(self.max_length)
-                temp[:labels.size(0)] = labels
-                labels = temp
+                # temp = torch.zeros(self.max_length)
+                # temp[:labels.size(0)] = labels
+                # labels = temp
 
-        return input, labels
+        return input #, labels
+    
+    def process_labels(self, shotno, spec_time):
+
+        label_time = []
+        labels = []
+        with open(os.path.join(self.labels_path, f'TCV_{shotno}_apau_MHD_labeled.csv')) as f:
+            data = np.loadtxt(f, skiprows=1, delimiter=',')
+
+            label_time = data[:, 0]
+            labels = data[:, 4]
+
+        perturbation_idx = np.where(labels == 2)[0]
+        true_labels = torch.zeros(len(spec_time))
+
+        for _, g in groupby(enumerate(perturbation_idx), lambda k: k[0] - k[1]):
+            start = next(g)[1]
+            end = list(v for _, v in g)[-1] or [start]
+            
+            start_time = label_time[start]
+            end_time = label_time[end]
+
+            idx = torch.where((spec_time >=  start_time) & (spec_time <= end_time))
+            true_labels[idx] = 1
+
+
+        if len(true_labels) > self.max_length:
+            true_labels = true_labels[:self.max_length]
+        elif len(true_labels) < self.max_length:
+            temp = torch.zeros(self.max_length)
+            temp[:true_labels.shape[0]] = true_labels
+            true_labels = temp
+
+        return true_labels

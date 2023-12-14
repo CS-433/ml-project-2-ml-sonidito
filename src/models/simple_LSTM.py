@@ -38,3 +38,8 @@ class SimpleLSTM(nn.Module):
         output = output.squeeze(-1) # NOTE : No sigmoid, use LogitsLoss !
         # print(f'output.shape={output.shape}')
         return output
+    
+    def reset_weights(self):
+        for module in self.modules():
+            if hasattr(module, 'reset_parameters'):
+                module.reset_parameters()
