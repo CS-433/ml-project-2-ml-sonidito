@@ -9,7 +9,7 @@ from tqdm.notebook import tqdm
 
 
 class SpectrogramDataset(Dataset):
-    def __init__(self, data_path, file_ext, window_size, transform=None, time_step=5.12e-4, overlap=0):
+    def __init__(self, data_path, file_ext, window_size, transform=None, time_step=5.12e-4, overlap=0, shot_filter=None):
         """
         SpectrogramDataset constructor.
 
@@ -20,6 +20,7 @@ class SpectrogramDataset(Dataset):
         - transform (callable): Optional transform to be applied on a window.
         - time_step (float): Duration of each time step in ms.
         - overlap (float): Fraction of overlap between consecutive windows (0 to 1).
+        - shot_filter (list): List of shot numbers to include in the dataset.
 
         Attributes:
         - data_path (str): Location of the data.
@@ -41,8 +42,12 @@ class SpectrogramDataset(Dataset):
         self.window_step = int(self.window_size * (1 - overlap))  # Step size for moving the window
 
         # Retrieve all shot numbers
-        self.shotnos = [int(os.path.basename(x.split(f".{file_ext}")[0]))
+        shotnos = [int(os.path.basename(x.split(f".{file_ext}")[0]))
                         for x in glob.glob(os.path.join(data_path, f"*.{file_ext}"))]
+        # Apply shot mask if provided (to split the shots into train/val/test sets)
+        if shot_filter is not None:
+            shotnos = [shotnos[i] for i in shot_filter]
+        self.shotnos = shotnos
 
         # Precompute and store all windows with unique IDs using a list of dicts
         self.windows = self.compute_all_windows()
