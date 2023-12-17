@@ -41,7 +41,7 @@ def compute_kappa_score(preds, labels):
     fn = (((preds==False) & (labels == True))).sum(axis = 1)
     fp = (((preds==True) & (labels == False))).sum(axis = 1)
 
-    res = (2 * (tp * tn - fn * fp)) / ((tp + fp) * (fp + tn) + (tp + fn) + (fn + tn))
+    res = (2 * (tp * tn - fn * fp)) / ((tp + fp) * (fp + tn) + (tp + fn) * (fn + tn))
     res[torch.isnan(res)] = 0
 
     return res
