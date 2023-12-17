@@ -13,33 +13,48 @@ import torch.nn as nn
 
 
 def train(model,train_loader, val_loader, optimizer, criterion, device,
-            n_epochs = 10, early_stopping = None, l1_sigma=0 ):
+            n_epochs = 10, early_stopping = None, l1_sigma=0, compute_score = None ):
 
     model.to(device)
 
     train_losses = []
     val_losses = []
 
-    val_losses.append(run_validation(model, val_loader, criterion, device))
-    
-    for epoch in range(n_epochs):
-        epoch_losses = train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device)
-        train_losses += epoch_losses
+    scores_list = []
 
-        eval_loss = run_validation(model, val_loader, criterion, device)
-        val_losses.append(eval_loss)
+    eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_score)
+    val_losses.append(eval_loss)
+    if compute_score is not None:
+        scores_list.append(scores.item())
 
-        if early_stopping != None:
-            if early_stopping.early_stop(eval_loss, model):
-                model = torch.load(early_stopping.save_path) # laod best model
-                break
+    with tqdm(range(n_epochs)) as pbar: 
+        for epoch in pbar:
+            epoch_losses = train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device, leave=False)
+            train_losses += epoch_losses
+
+            eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_score)
+            val_losses.append(eval_loss)
+            if compute_score is not None :
+                scores_list.append(scores.item())
+            else :
+                scores = eval_loss
+            pbar.set_postfix(score=scores.item(), train_loss=np.mean(train_losses))
+
+            if early_stopping != None:
+                if early_stopping.early_stop(scores, model):
+                    model = torch.load(early_stopping.save_path) # laod best model
+                    break
     
     plot_losses(train_losses, val_losses)
 
-def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device, disable_progress_bar=False):
+    plt.plot(-1 * np.array(scores_list))
+    plt.show()
+
+
+def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device, disable_progress_bar=False, leave=True):
     model.train()
     batch_losses = []
-    with tqdm(train_loader, unit='batch', disable=disable_progress_bar) as tepoch:
+    with tqdm(train_loader, unit='batch', disable=disable_progress_bar, leave=leave) as tepoch:
         for x_batch, y_batch in tepoch :
             tepoch.set_description(f'Epoch {epoch+1}')
 
@@ -64,25 +79,28 @@ def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, 
     # print(f'Epoch {epoch + 1} loss : {np.mean(batch_losses)}')
     return batch_losses
 
-def run_validation(model, val_loader, criterion, device) :
+def run_validation(model, val_loader, criterion, device, compute_score = None) :
     model.eval()    
     running_val_loss = 0
+    scores = torch.tensor([]).to(device)
     with torch.no_grad():
         for x_batch, y_batch in val_loader :
 
             x_batch = x_batch.to(device)
             y_batch = y_batch.to(device)
 
-            pred = model(x_batch)
+            logits = model(x_batch)
             y_batch = y_batch.to(torch.float32)
-            loss = criterion(pred, y_batch)
+            loss = criterion(logits, y_batch)
+
+            if compute_score is not None:
+                scores = torch.cat((compute_score(logits, y_batch), scores))
 
             running_val_loss += loss.item()
-
-    return running_val_loss / len(val_loader)
+    return running_val_loss / len(val_loader), torch.mean(scores)
 
 def k_fold(dataset, model, criterion, device, lr, weight_decay,
-           k_fold=5, n_epochs = 0, l1_sigma=0, batch_size=1, patience=5, delta=5e-2, threshold=0.7, disable_pbar=False) :
+           k_fold=5, n_epochs = 0, l1_sigma=0, batch_size=1, patience=5, delta=5e-2, threshold=0.7, compute_score= None, disable_pbar=False) :
     
     def create_output(logits, threshold=0.8):
         output = torch.zeros(logits.shape)
@@ -110,6 +128,7 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay,
     mean_train_loss = 0
     mean_eval_loss = 0
     mean_kappa = 0
+    
 
     for fold, (train_ids, test_ids) in tqdm(enumerate(kd.split(dataset)), disable=disable_pbar, total=k_fold):
         train_subsample = torch.utils.data.SubsetRandomSampler(train_ids)
@@ -132,11 +151,13 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay,
             epoch_losses = train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device, disable_progress_bar=True)
             train_losses += epoch_losses
 
-
-            eval_loss = run_validation(model, val_loader, criterion, device)
+            eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_score)
             val_losses.append(eval_loss)
 
-            if early_stopping is not None and early_stopping.early_stop(eval_loss, model):
+            if compute_score is None:
+                scores = eval_loss
+
+            if early_stopping is not None and early_stopping.early_stop(scores, model):
                 model = torch.load(early_stopping.save_path) # laod best model
                 break
         
