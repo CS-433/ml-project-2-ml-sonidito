@@ -304,7 +304,7 @@ class SpectrogramDataset(Dataset):
             elif start_time is not None:
                 # end of instability
                 end_time = df.loc[i, 'time']
-                instabilities.append((start_time, end_time))
+                instabilities.append((start_time-0.01, end_time-0.01))
                 start_time = None  # reset start_time for next instability
 
         return instabilities
