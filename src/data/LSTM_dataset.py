@@ -18,7 +18,7 @@ class LSTMDataset(Dataset):
             all_shots : list
                 List containing all shot number
             transform : torchvision.transform
-                Transformation to apply to the spectogram
+                Transformation to apply to the spectrogram
             max_length : int
                 Max length of the data
             features_selection : list
@@ -40,7 +40,7 @@ class LSTMDataset(Dataset):
             features_selection : list, optional
                 Select which features to used for the training, valid value : max_energies, N0, N1, N2, N3, N4, LM
             transform : torchvision.transform, optional
-                Transformation to apply to the spectogram
+                Transformation to apply to the spectrogram
             max_length : int, optional
                 Max length of the data
             use_pickle : bool, optional
@@ -81,12 +81,12 @@ class LSTMDataset(Dataset):
                     'LM' : 0}
         
         self.max = {'max_energies' : 0,
-            'N0' : 0.0193,
+            'N0' : 0.0151,
             'N1' : 0.0142,
             'N2' : 0.006,
-            'N3' : 0.008,
-            'N4' : 0.005,
-            'LM' :0.001}
+            'N3' : 0.006,
+            'N4' : 0.004,
+            'LM' : 0.001}
         
         with tqdm(self.all_shots) as pbar:
             pbar.set_description('data processing')
@@ -100,6 +100,7 @@ class LSTMDataset(Dataset):
                 self.features.append(features)
                 self.labels.append(label)
 
+            self.remove_empty_mode_features()
             self.padding()
 
     def __len__(self):
@@ -128,11 +129,11 @@ class LSTMDataset(Dataset):
             shotno : int
                 Experience number
             label_path : str
-                path to the folder contraining labels
+                path to the folder containing labels
 
         Return 
             dict 
-                A dictionar containing the time and the label
+                A dictionary containing the time and the label
         """
         with open(os.path.join(labels_path, f'TCV_{shotno}_apau_MHD_labeled.csv')) as f:
             data = np.loadtxt(f, skiprows=1, delimiter=',')
@@ -141,11 +142,11 @@ class LSTMDataset(Dataset):
     
     def compute_max_energy(self, spec, f, freq_end = 800) : 
         """
-        Search the max energy of the spectogram by selecting the max value of each timestamp
+        Search the max energy of the spectrogram by selecting the max value of each timestamp
 
         Parameters :
             spec : torch.tensor (W,H)
-                The spectogram in tensor form 
+                The spectrogram in tensor form 
 
         """
         mask = ~torch.isinf(spec) & ~torch.isnan(spec)
@@ -154,44 +155,21 @@ class LSTMDataset(Dataset):
         spec[~mask] = mean
         max_energies,_ = torch.max(spec, dim = 1)
 
-        # transform = torchvision.transforms.GaussianBlur(kernel_size = (5,1))
-
-        # norm_spec = spec[:, :freq_end]
-        # norm_spec = norm_spec.unsqueeze(0)
-        # for _ in range(10):
-        #     norm_spec = transform(norm_spec)
-        # norm_spec = norm_spec.squeeze()
-
-
-
-        # min_spec, _ = torch.min(norm_spec, axis=1)
-        # max_spec, _ = torch.max(norm_spec, axis=1)
-        # norm_spec = (norm_spec.swapaxes(0,1) - min_spec) / (max_spec - min_spec)
-        # norm_spec = norm_spec.swapaxes(0,1)
-        # norm_spec[norm_spec < 0.9] = 0
-        # position_idx = torch.argmax(norm_spec, dim=1)
-        # position = f[position_idx]
-      
-        # spec[abs(spec) > 60] = 0
-   
-        # position_idx = torch.argmax(norm_spec, dim=1)
-        # position = f[position_idx]
-
         max_energies = torch.from_numpy(gaussian_filter(max_energies, 3))
 
         max_energies = self.normalize('max_energies', max_energies)
-        return max_energies#, torch.from_numpy(gaussian_filter(position, 1))
+        return max_energies
     
     def compute_mode(self, mode, size) : 
         """
-            Process the mode value, use a nearest interpotation to downscale the mode and compute a max-min scaling.
+            Process the mode value, use a nearest interpolation to downscale the mode and compute a max-min scaling.
             If the mode contain nan or inf value, replace it with the mean
         
         Parameters
             mode : torch.tensor
                 Tensor containing the mode values
             size : int
-                The lenght of the mode
+                The length of the mode
         
         Return 
             torch.tensor
@@ -214,15 +192,15 @@ class LSTMDataset(Dataset):
         """
             Process the features, remove the timestamp that precedes to the label start 
 
-            Parameteres
+            Parameter
                 features : dict
                     Dictionary containing the feature to process
-                label start : flaot
+                label start : float
                     The start timestamp of the label
 
             Return :
                 dict
-                    Ditionary containing the processed features
+                    Dictionary containing the processed features
                     List of features: max_energies, N0, N1, N2, N3, N4m LM
         """
 
@@ -279,34 +257,37 @@ class LSTMDataset(Dataset):
     
     def process_labels(self, data, spec_time):
         """
-        Create the label according to the spectogram timestamp
+        Create the label according to the spectrogram timestamp
 
         Parameters 
             data : list
                 label data, 2 equals perturbation, 1 otherwise
             spec_time : list
-                Timestamp of the spectogram
+                Timestamp of the spectrogram
 
         Return 
             torch.tensor
-                List of the label with the same timestamp than the spectogram
+                List of the label with the same timestamp than the spectrogram
             
         """
 
         label_time = data['time']
         labels = data['label']
 
-        perturbation_idx = np.where(labels == 2)[0] # Retrive idx where a perturbation occured
+        perturbation_idx = np.where(labels == 2)[0] # Retrieve idx where a perturbation occurred
         true_labels = torch.zeros(len(spec_time))
 
-        for _, g in groupby(enumerate(perturbation_idx), lambda k: k[0] - k[1]): # Iterate by perturrbation block
+        for _, g in groupby(enumerate(perturbation_idx), lambda k: k[0] - k[1]): # Iterate by positive block
             start = next(g)[1]
             end = list(v for _, v in g)[-1] or [start]
-            
+           
             start_time = label_time[start]
             end_time = label_time[end]
 
-            # Search the idx in the spectrogram where it contrains the perturbation
+            if end_time - start_time <= 0.03: # Skip small mode
+                continue
+
+            # Search the idx in the spectrogram where it contains the perturbation
             idx = torch.where((spec_time >=  start_time) & (spec_time <= end_time)) 
             true_labels[idx] = 1
 
@@ -320,6 +301,21 @@ class LSTMDataset(Dataset):
                 true_labels = temp
 
         return true_labels
+
+    def remove_empty_mode_features(self):
+        """
+            Remove from the data that contains only negative label
+        """
+        indexes = np.where((np.array(self.labels) == 0).all(axis = 1))[0]
+        
+        if len(indexes) > 0 :
+            print(f"deleted {len(indexes)} data that doesn't have any mode")
+            self.labels = [elem for idx, elem in enumerate(self.labels) if idx not in indexes]
+            self.features = [elem for idx, elem in enumerate(self.features) if idx not in indexes]
+            self.all_shots = [elem for idx, elem in enumerate(self.all_shots) if idx not in indexes]
+
+            assert len(self.labels) == len(self.features)
+
     
 def create_preds(logits, threshold=0.8):
     """
@@ -327,9 +323,9 @@ def create_preds(logits, threshold=0.8):
 
         Parameters
             logits : torch.tensor
-                logits than will be tranformed into predictions
+                logits than will be transformed into predictions
             threshold : float, optional
-                logits greater that the threashold will be assigned the value 1, 0 otherwise
+                logits greater that the threshold will be assigned the value 1, 0 otherwise
 
         Return
             torch.tensor 
