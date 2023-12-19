@@ -3,11 +3,32 @@
 
 # ML4Science : Image processing/pattern recognition on MHD spectrograms to automate the detection of phase in the discharge characterized by Magneto-HydroDynamic instabilities
 
-## Repo structure
+## Getting Start
+
+Requirements :
+
+- Ananconda
+- PyTorch with CUDA adapted to your machine
+
+The conda environement can be create by runing this command
 
 ```text
-\---data
-    +---dataset_h5
-    \---dataset_pickle
+conda env create -f environment.yml
+```
+
+## Repo structure
+
+The repo doesn't contain the dataset; it is the user's responsability to palce the data according to the specified structure.
+
+```text
+├───data
+│   ├───dataset_h5
+│   ├───dataset_pickle
+│   └───MHD_labels
+├───models          # Contain the weight of the train model
+├───notebook
+└───src
+    ├───data
+    └───models
 ```
 
