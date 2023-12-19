@@ -12,8 +12,34 @@ import torch.optim as optim
 import torch.nn as nn
 
 
-def train(model,train_loader, val_loader, optimizer, criterion, device,
+def train(model,train_loader, val_loader, optimizer, criterion, device, 
             n_epochs = 10, early_stopping = None, l1_sigma=0, compute_score = None ):
+    
+    """
+        Helper used to train the given model and plot the losses after the training
+
+        Parameters 
+            model : nn.Module
+                Model to train
+            train_loader : Dataloader
+                Data used for the training
+            val_loader : Dataloader
+                Data used for th validation
+            optimizer : nn.Optim
+                Optimzer used during the training
+            criterion : torch.nn
+                criterion used to compute the loss
+            device : str
+                Used to move the tensor to the correct device
+            n_epochs : int, optional
+                Number of epoch to run
+            early_stopping : EarlyStopping, optional
+                Module used to track the early stop condition and save the best model
+            l1_sigma : float, optional
+                Sigma used of the L1 regularization
+            comptue_score : func, optional
+                Function used to compute the score using the validation data
+    """
 
     model.to(device)
 
@@ -29,15 +55,24 @@ def train(model,train_loader, val_loader, optimizer, criterion, device,
 
     with tqdm(range(n_epochs)) as pbar: 
         for epoch in pbar:
-            epoch_losses = train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device, leave=False)
+            epoch_losses = train_one_epoch(model, 
+                                           train_loader, 
+                                           criterion, 
+                                           optimizer, 
+                                           epoch, 
+                                           l1_sigma, 
+                                           device, 
+                                           leave=False)
             train_losses += epoch_losses
 
             eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_score)
             val_losses.append(eval_loss)
+
             if compute_score is not None :
                 scores_list.append(scores.item())
             else :
                 scores = eval_loss
+
             pbar.set_postfix(score=scores.item(), train_loss=np.mean(train_losses))
 
             if early_stopping != None:
@@ -47,11 +82,37 @@ def train(model,train_loader, val_loader, optimizer, criterion, device,
     
     plot_losses(train_losses, val_losses)
 
-    plt.plot(-1 * np.array(scores_list))
-    plt.show()
+    if compute_score is not None:
+        plt.plot(np.array(scores_list))
+        plt.show()
 
 
 def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device, disable_progress_bar=False, leave=True):
+    """
+        Train one epoch
+
+        Parameter
+            model : nn.Module
+                Model to train
+            train_loader : DataLoader
+                Data used for the training
+            criterion : torch.nn
+                Criterion used to compute the loss
+            epoch : int
+                Current epoch
+            l1_sigma : float
+                Sigma of the L1 regularization
+            device : str
+                Used to move the tensor to the correct device
+            disable_progress_bar : bool, optional
+                if True, disable tqdm progress bar
+            leave : bool, optional
+                leave option of tqdm
+        
+        Return
+            list
+                List of batch loss
+    """
     model.train()
     batch_losses = []
     with tqdm(train_loader, unit='batch', disable=disable_progress_bar, leave=leave) as tepoch:
@@ -65,6 +126,8 @@ def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, 
             y_batch = y_batch.to(torch.float32)
 
             loss = criterion(y_pred, y_batch)
+
+            # L1 Normalization
             if l1_sigma != 0 :
                 for param in model.parameters():
                     if param.requires_grad:
@@ -76,47 +139,90 @@ def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, 
 
             batch_losses.append(loss.item())
             tepoch.set_postfix(loss=np.mean(batch_losses))
-    # print(f'Epoch {epoch + 1} loss : {np.mean(batch_losses)}')
+
     return batch_losses
 
 def run_validation(model, val_loader, criterion, device, compute_score = None) :
+    """"
+        Compute the score and the loss of the validation data
+
+        Parameter
+            model : nn.Module
+                Model to evaluate
+            val_loader : Dataloader
+                Data used for th validation
+            criterion : torch.nn
+                criterion used to compute the loss
+            device : str
+                Used to move the tensor to the correct device
+            comptue_score : func, optional
+                Function used to compute the score using the validation data
+        
+        Return 
+            float
+                the mean loss of the validation
+            float
+                the mean score of the validation
+    """
+
     model.eval()    
     running_val_loss = 0
     scores = torch.tensor([]).to(device)
+
     with torch.no_grad():
         for x_batch, y_batch in val_loader :
 
             x_batch = x_batch.to(device)
             y_batch = y_batch.to(device)
 
-            logits = model(x_batch)
+            output = model(x_batch)
             y_batch = y_batch.to(torch.float32)
-            loss = criterion(logits, y_batch)
+            loss = criterion(output, y_batch)
 
             if compute_score is not None:
-                scores = torch.cat((compute_score(logits, y_batch), scores))
+                scores = torch.cat((compute_score(output, y_batch), scores))
 
             running_val_loss += loss.item()
     return running_val_loss / len(val_loader), torch.mean(scores)
 
-def k_fold(dataset, model, criterion, device, lr, weight_decay,
-           k_fold=5, n_epochs = 0, l1_sigma=0, batch_size=1, patience=5, delta=5e-2, threshold=0.7, compute_score= None, disable_pbar=False) :
+def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
+           k_fold=5, n_epochs = 1, l1_sigma=0, batch_size=1, threshold=0.8, disable_pbar=False) :
     
-    def create_output(logits, threshold=0.8):
-        output = torch.zeros(logits.shape)
-        for idx, logit in enumerate(logits):
-            if (logit < threshold).all():
-                continue
+    """
+        Run K-fold cross validation
 
-            start = torch.argmax((logit > threshold)* 1)
-            end = len(logit) - torch.argmax(torch.flip(logit > threshold, dims=(0,)) * 1)
-
-            res = torch.zeros(len(logit))
-            res[start:end] = 1
-            output[idx] = res
-
-        return output
-    
+        Parameter 
+            dataset : Dataset
+                Dataset used for the cross validation
+            model : nn.Module
+                Model to evaluate
+            criterion : torch.nn
+                criterion used to compute the loss
+            lr : float
+                Learning rate
+            weigth_decay : float
+                weight decay for the optimizer
+            create_output : func
+                Function used to compute the score
+            k_fold : int, optional
+                number of fold
+            n_epochs : int, optional
+                Number of epoch to run
+            l1_sigma : float, optional
+                Sigma used of the L1 regularization
+            batch_size : int, optional
+                Batch size of the dataloader
+            threshold : float, optional
+                Threshold used by the `create_output` function
+            disable_pbar : bool, optional 
+                remove tqdm bar
+        
+        Return 
+            dict
+                the average of different score
+                Score computed : accuracy, precision, recall, f1, kappa, train_loss, val_loss
+    """
+        
     model.to(device)
 
     kd = KFold(k_fold, shuffle=True)
@@ -130,42 +236,41 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay,
     mean_kappa = 0
     
 
-    for fold, (train_ids, test_ids) in tqdm(enumerate(kd.split(dataset)), disable=disable_pbar, total=k_fold):
+    for train_ids, test_ids in tqdm(kd.split(dataset), unit='fold', disable=disable_pbar, total=k_fold):
+
+        # Create the split
         train_subsample = torch.utils.data.SubsetRandomSampler(train_ids)
         test_subsample = torch.utils.data.SubsetRandomSampler(test_ids)
 
         train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=train_subsample)
         val_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=test_subsample)
-
-        early_stopping = None
-        if patience is not None:
-            early_stopping = EarlyStopping('../models/k_fold_lstm.pt', patience, delta)
     
+        # Reset the model weights
         model.reset_weights()
+
         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay = weight_decay)
 
         train_losses = []
         val_losses = []
 
         for epoch in range(n_epochs):
-            epoch_losses = train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device, disable_progress_bar=True)
+            epoch_losses = train_one_epoch(model, 
+                                           train_loader, 
+                                           criterion, 
+                                           optimizer, 
+                                           epoch, 
+                                           l1_sigma, 
+                                           device, 
+                                           disable_progress_bar=True)
             train_losses += epoch_losses
 
-            eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_score)
+            eval_loss, _ = run_validation(model, val_loader, criterion, device)
             val_losses.append(eval_loss)
-
-            if compute_score is None:
-                scores = eval_loss
-
-            if early_stopping is not None and early_stopping.early_stop(scores, model):
-                model = torch.load(early_stopping.save_path) # laod best model
-                break
         
-        # plot_losses(train_losses, val_losses)
-
         mean_train_loss += np.mean(train_losses) / k_fold
         mean_eval_loss += np.mean(val_losses) / k_fold
 
+        # Model eval
         model.eval()
         with torch.no_grad():
             total_accuracy = 0
@@ -178,17 +283,10 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay,
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device)
 
-                logits = model(x_batch)
-                logits = torch.sigmoid(logits)
+                output = model(x_batch)
+                logits = torch.sigmoid(output)
 
                 preds = create_output(logits, threshold).to(device)
-
-                # for idx, pred in enumerate(preds[:2]):
-                #     plt.plot(logits[idx].cpu(), label='logits', linestyle='--' )
-                #     plt.plot(y_batch[idx].cpu(), label='ground truth', alpha=0.8)
-                #     plt.plot(pred.cpu().squeeze(), label='output', linestyle=':')
-                #     plt.legend()
-                #     plt.show()
 
                 total_accuracy += torch.sum(compute_accuracy(preds, y_batch)) 
                 total_precision += torch.sum(compute_precision(preds, y_batch))
@@ -212,6 +310,10 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay,
 
 
 def plot_losses(train_losses, val_losses):
+    """
+        Plot the train and validation on the same plot
+    """
+
     plt.plot(np.linspace(0, len(val_losses)-1, len(train_losses)), train_losses, label='train')
     plt.plot(val_losses, label='validation')
     plt.title("loss")

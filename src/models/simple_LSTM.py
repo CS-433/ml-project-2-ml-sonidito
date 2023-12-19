@@ -2,6 +2,26 @@ import torch.nn as nn
 import torch
 
 class SimpleLSTM(nn.Module):
+    """
+        Curstom LSTM followed by a fully connected net
+    
+        Attributes
+            input_size : int
+                The input size of the LSTM
+            hidden_size : int
+                The hidden size of the LSTM
+            num_layers : int
+                Thu number of layer of the LSTM
+            bidirectional : bool
+                Set the directionality of the LSTM
+            lstm : torch.nn
+                LSTM module
+            fc : nn.Sequential
+                Fully connected net, create Linear module sequentially, the output size of the Lienar is always the
+                half of the input size. Start with the hidden size and stop when the input size is smaller than 8.
+                The last layer a output size of 1. Each Linear layer is followed by a leaky ReLU
+    """
+
     def __init__(self, input_size, hidden_size, num_layers, dropout_rate = 0, bidirectional=False):
 
         super().__init__()
@@ -32,6 +52,7 @@ class SimpleLSTM(nn.Module):
                                     
 
     def forward(self, input):
+        # Random init h0 and c0 input
         if len(input.shape) > 2:
             h0 = torch.randn(self.num_layers * (self.bidirectional+1), input.shape[0], self.hidden_size).to(input.device)
             c0 = torch.randn(self.num_layers * (self.bidirectional+1), input.shape[0], self.hidden_size).to(input.device)
@@ -39,16 +60,16 @@ class SimpleLSTM(nn.Module):
             h0 = torch.randn(self.num_layers * (self.bidirectional+1), self.hidden_size).to(input.device)
             c0 = torch.randn(self.num_layers * (self.bidirectional+1), self.hidden_size).to(input.device)
 
-        #print(f'input.shape={input.shape}')
-        output, _ = self.lstm(input, (h0,c0)) # Input : (batch, seq size, input_size) , output : (batch, seq size, hidden size)
-        # print(f'after lstm output.shape={output.shape}')
+        output, _ = self.lstm(input, (h0,c0))
         output = self.fc(output)
-        # print(f'after fc output.shape={output.shape}')
-        output = output.squeeze(-1) # NOTE : No sigmoid, use LogitsLoss !
-        # print(f'output.shape={output.shape}')
+        output = output.squeeze(-1) # NOTE : No sigmoid, use LogitsLoss as criterion!
         return output
     
     def reset_weights(self):
+        """
+            Reset all layers that can be reset
+        """
+
         for module in self.modules():
             if hasattr(module, 'reset_parameters'):
                 module.reset_parameters()
