@@ -15,8 +15,8 @@ def train(model, train_loader, test_loader, optimizer, scheduler, criterion, dev
 
     train_losses = []
     val_losses = []
-    f1s_test = []
-    f1s_train = []
+    train_f1s = []
+    val_f1s = []
 
     for epoch in range(n_epochs):
 
@@ -66,7 +66,7 @@ def train(model, train_loader, test_loader, optimizer, scheduler, criterion, dev
                 tepoch.set_postfix(loss=loss.item())
 
         val_losses.append(val_loss / len(test_loader))
-        f1s_test.append(np.mean(val_f1))
+        val_f1s.append(np.mean(val_f1))
 
         # evaluate on train set
         train_acc = []
@@ -93,7 +93,7 @@ def train(model, train_loader, test_loader, optimizer, scheduler, criterion, dev
                 tepoch.set_postfix(loss=loss.item())
 
         train_losses.append(train_loss / len(train_loader))
-        f1s_train.append(np.mean(train_f1))
+        train_f1s.append(np.mean(train_f1))
 
 
         train_roc_auc = [x for x in train_roc_auc if x is not None]
@@ -108,9 +108,9 @@ def train(model, train_loader, test_loader, optimizer, scheduler, criterion, dev
         )
 
     plot_losses(train_losses, val_losses)
-    plot_f1(f1s_train, f1s_test)
+    plot_f1(train_f1s, val_f1s)
 
-    return f1s_train[-1], f1s_test[-1]
+    return train_f1s[-1], val_f1s[-1]
 
 
 def plot_losses(losses, losses_val):

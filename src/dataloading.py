@@ -86,7 +86,10 @@ class SpectrogramDataset(Dataset):
 
         # normalize and resize the spectrogram slice
         if self.transform:
-            window_dict['window_odd'] = np.clip(window_dict['window_odd'], -255, 0).astype(np.uint8) + 255
+            # filter out values below -100 dB
+            window_dict['window_odd'] = np.clip(window_dict['window_odd'], -100, 0)
+            # apply min-max normalization
+            window_dict['window_odd'] = self.normalize_spectrogram(window_dict['window_odd'])
             window_dict['window_odd'] = self.transform(window_dict['window_odd']).float()
 
         window_dict['label'] = window_dict['label'].float()
@@ -120,6 +123,14 @@ class SpectrogramDataset(Dataset):
                 print(f"Error loading shot label {shotno}: {e}")
 
         return shot_label
+
+    def normalize_spectrogram(self, spectrogram):
+        # Apply min-max normalization
+        spectrogram_min = spectrogram.min()
+        spectrogram_max = spectrogram.max()
+        normalized_spectrogram = (spectrogram - spectrogram_min) / (spectrogram_max - spectrogram_min)
+
+        return normalized_spectrogram
 
     def get_start_end_longest_mode(self, label_sources, std_factor=0.25, mean_factor=0.8):
         """
