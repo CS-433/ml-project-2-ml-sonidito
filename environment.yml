@@ -3,11 +3,13 @@ channels:
   - defaults
   - conda-forge
 dependencies:
-  - jupyterlab
-  - matplotlib
   - numpy
+  - matplotlib
   - scipy
+  - jupyterlab
   - hickle
-  - pytorch
   - tqdm
+  - pytorch
   - torchvision
+  - ipykernel
+  - scikit-learn
