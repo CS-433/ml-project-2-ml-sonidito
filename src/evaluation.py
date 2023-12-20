@@ -3,6 +3,43 @@ import matplotlib.pyplot as plt
 import os
 import hickle
 import torch
+from tqdm.notebook import tqdm
+from metrics import compute_metrics
+
+
+def evaluate_model(model, test_loader, device, threshold=0.50):
+    """
+    Evaluates the model on the test set.
+
+    Parameters:
+    - model: The trained model to evaluate.
+    - test_loader: The DataLoader object containing the test data.
+    - device: The device where the model and data are located.
+    - threshold: The threshold for classifying a slice as positive.
+
+    Returns:
+    - accuracy: The accuracy of the model.
+    - f1: The F1 score of the model.
+    - kappa: Cohen's kappa for the model.
+    """
+    model.eval()
+    with torch.no_grad():
+        logits = []
+        labels = []
+        with tqdm(test_loader, unit='batch', desc='Evaluating') as tepoch:
+            for batch in tepoch:
+                x_batch = batch['window_odd'].to(device)
+                y_batch = batch['label'].to(device)
+                output = model(x_batch)
+                logits.append(output)
+                labels.append(y_batch)
+
+        logits = torch.cat(logits, dim=0)
+        labels = torch.cat(labels, dim=0)
+
+        accuracy, f1, kappa, _ = compute_metrics(logits, labels, threshold)
+
+    return accuracy, f1, kappa
 
 
 def plot_spectrogram_slices(test_loader, shotnos=[], cmap='jet', figsize=(16, 16)):
