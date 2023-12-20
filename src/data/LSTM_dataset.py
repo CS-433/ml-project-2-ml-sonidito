@@ -60,6 +60,7 @@ class LSTMDataset(Dataset):
         
         self.all_shots = [int(os.path.basename(x.split(f".{file_ext}")[0])) 
              for x in glob.glob(os.path.join(data_path, f"*.{file_ext}"))]
+        self.all_shots.sort()
         
         self.transform = transform
         self.max_length = max_length
@@ -69,10 +70,8 @@ class LSTMDataset(Dataset):
         self.features = []
         self.labels = []
 
-        self.scaler = MinMaxScaler()
-
         # Standardization of the energy
-        self.min = {'max_energies' : -85.966,
+        self.min = {'max_energies' : 0,
                     'N0' : 0,
                     'N1' : 0,
                     'N2' : 0,
@@ -80,13 +79,13 @@ class LSTMDataset(Dataset):
                     'N4' : 0,
                     'LM' : 0}
         
-        self.max = {'max_energies' : 0,
-            'N0' : 0.0151,
-            'N1' : 0.0142,
-            'N2' : 0.006,
-            'N3' : 0.006,
-            'N4' : 0.004,
-            'LM' : 0.001}
+        self.max = {'max_energies' : 0.821,
+            'N0' : 1.280,
+            'N1' : 1.004,
+            'N2' : 1.092,
+            'N3' : 1.424,
+            'N4' : 1.262,
+            'LM' : 1.794}
         
         self.without_label = without_label
         
@@ -104,9 +103,6 @@ class LSTMDataset(Dataset):
                     self.labels.append(label)
 
                 self.features.append(features)
-
-            if not without_label:
-                self.remove_empty_mode_features()
 
             self.padding()
 
@@ -310,25 +306,6 @@ class LSTMDataset(Dataset):
 
         return true_labels
 
-    def remove_empty_mode_features(self):
-        """
-            Remove from the data that contains only negative label
-        """
-
-        if self.max_length is None :
-            indexes = []
-            for idx, label in enumerate(self.labels):
-                if (label == 0).all() :
-                    indexes.append(idx)
-        else:  
-            indexes = np.where((np.array(self.labels) == 0).all(axis = 1))[0]
-            
-        if len(indexes) > 0 :
-            print(f"deleted {len(indexes)} data that doesn't have any mode")
-            self.labels = [elem for idx, elem in enumerate(self.labels) if idx not in indexes]
-            self.features = [elem for idx, elem in enumerate(self.features) if idx not in indexes]
-            self.all_shots = [elem for idx, elem in enumerate(self.all_shots) if idx not in indexes]
-    
 def create_preds(logits, threshold=0.8):
     """
         For the given logits, use a threshold to create the prediction

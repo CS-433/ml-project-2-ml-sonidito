@@ -23,6 +23,7 @@ matplotlib.rcParams['figure.dpi'] = 150
 
 def main(args) :
 
+    g = None
     if args.set_seed :
         print("Seed fixed")
         torch.manual_seed(0)
@@ -38,9 +39,11 @@ def main(args) :
     
     print(f'training with these featuers : {args.features}')
     
-    size = int(len(dataset) * 0.9)
+    train_ids = [86, 6, 43, 68, 27, 38, 7, 65, 29, 4, 87, 19, 53, 36, 51, 66, 59, 28, 37, 84, 77, 1, 16, 64, 30, 32, 62, 69, 17, 49, 79, 18, 24, 74, 57, 50, 56, 92, 11, 34, 73, 45, 54, 47, 89, 71, 82, 41, 76, 60, 48, 88, 2, 3, 80, 35, 46, 70, 90, 42, 20, 85, 9, 81, 21, 33, 75, 23, 83, 58, 5, 78, 52, 15, 31, 12, 63, 8, 93, 13, 14, 91, 61, 25]
+    test_ids = [40, 22, 55, 72, 0, 26, 39, 67, 10, 44]
 
-    train_set, test_set = torch.utils.data.random_split(dataset, [size, len(dataset)-size])
+    train_set = torch.utils.data.Subset(dataset, train_ids)
+    test_set =  torch.utils.data.Subset(dataset, test_ids)
 
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size)
     val_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size)
@@ -138,10 +141,10 @@ def comptue_score(logits, labels):
 def compute_pos_weight(data):
     size = 0
     nb_pos = 0
-    for item in data:
-        labels = item[1]
+    for _, labels in data:
         size += len(labels.flatten())
         nb_pos +=(labels == 1).sum()
+    print(f'size={size}, nb_pos={nb_pos}')
     return (size - nb_pos) / nb_pos
 
 
