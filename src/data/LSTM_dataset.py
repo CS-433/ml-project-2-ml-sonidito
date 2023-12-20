@@ -32,7 +32,7 @@ class LSTMDataset(Dataset):
             max_energy_std : float
                 Std of the max_energy across all training set
     """
-    def __init__(self, data_root, features_selection = None, transform=None, max_length = None, use_pickle = True):
+    def __init__(self, data_root, features_selection = None, transform=None, max_length = None, use_pickle = True, without_label=False):
         """
         Parameters
             data_root : str
@@ -88,19 +88,26 @@ class LSTMDataset(Dataset):
             'N4' : 0.004,
             'LM' : 0.001}
         
+        self.without_label = without_label
+        
         with tqdm(self.all_shots) as pbar:
             pbar.set_description('data processing')
             for shotno in pbar :
                 data_features = self.load_shot(shotno, data_path, file_ext, use_pickle)
-                data_label = self.load_label(shotno, labels_path)
+                if without_label:
+                    features = self.process_features(data_features, None)
+                else:
+                    data_label = self.load_label(shotno, labels_path)
 
-                features = self.process_features(data_features, data_label['time'][0])
-                label = self.process_labels(data_label, torch.tensor(data_features['x']['spectrogram']['time']))
+                    features = self.process_features(data_features, data_label['time'][0])
+                    label = self.process_labels(data_label, torch.tensor(data_features['x']['spectrogram']['time']))
+                    self.labels.append(label)
 
                 self.features.append(features)
-                self.labels.append(label)
 
-            self.remove_empty_mode_features()
+            if not without_label:
+                self.remove_empty_mode_features()
+
             self.padding()
 
     def __len__(self):
@@ -111,6 +118,9 @@ class LSTMDataset(Dataset):
             input = [self.features[idx][key].numpy() for key in self.features_selection]
         else:
             input = [self.features[idx][key].numpy() for key in self.features[idx].keys()]
+
+        if self.without_label:
+            return (torch.tensor(input, dtype=torch.float32).swapaxes(0,1), self.all_shots[idx])
 
         return (torch.tensor(input, dtype=torch.float32).swapaxes(0,1), self.all_shots[idx]), self.labels[idx]
 
@@ -208,7 +218,8 @@ class LSTMDataset(Dataset):
         spec_time = features['x']['spectrogram']['time']
         f =  features['x']['spectrogram']['frequency'] 
 
-        spec_odd = spec_odd[spec_time >= label_start, :] # Keep only those that have a label
+        if label_start is not None:
+            spec_odd = spec_odd[spec_time >= label_start, :] # Keep only those that have a label
 
         if self.transform != None:
             spec_odd = self.transform(spec_odd)

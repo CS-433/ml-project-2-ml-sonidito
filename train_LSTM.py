@@ -1,5 +1,5 @@
 import sys
-sys.path.append('../../src/')
+sys.path.append('src/')
 
 import argparse
 import torch
@@ -10,9 +10,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from data.LSTM_dataset import LSTMDataset, create_preds
-from simple_LSTM import *
-from metrics import *
-from train_LSTM_utils import train
+from models.simple_LSTM import *
+from models.metrics import *
+from models.train_LSTM_utils import train
 
 font = {'size' : 18}
 
@@ -24,14 +24,19 @@ matplotlib.rcParams['figure.dpi'] = 150
 def main(args) :
 
     if args.set_seed :
+        print("Seed fixed")
         torch.manual_seed(0)
         np.random.seed(0)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f'device {device}')
 
     print("Creating the dataset")
     dataset = LSTMDataset(args.dataset_root,
+                          features_selection=args.features,
                           max_length=args.max_length)
+    
+    print(f'training with these featuers : {args.features}')
     
     size = int(len(dataset) * 0.9)
 
@@ -49,7 +54,8 @@ def main(args) :
                        args.num_layers, 
                        dropout_rate=args.dropout_rate)
     
-
+    print(model)
+    
     optimizer = optim.Adam(model.parameters(), 
                            lr=args.lr, 
                            weight_decay = args.weight_decay)
@@ -66,9 +72,10 @@ def main(args) :
     if args.save_plots and not os.path.exists(args.fig_folder) :
         os.makedirs(args.fig_folder)
 
+    print(args.save_plots)
 
     print("start the training")
-    train(model, 
+    model = train(model, 
       train_loader, 
       val_loader, 
       optimizer, 
@@ -96,31 +103,29 @@ def main(args) :
         logits = torch.sigmoid(model(x_batch)).detach().cpu()
         preds = create_preds(logits)
 
-
         kappa += compute_kappa_score(preds, y_batch)
         if args.save_eval :
             if args.batch_size is None :
-                plot(shotno, logits, y_batch, preds)
+                plot(shotno, logits, y_batch, preds, kappa)
             else :
                 for b_idx in range(len(shotno)):
-                    plot(shotno[b_idx], logits[b_idx], y_batch[b_idx], preds[b_idx])
+                    plot(shotno[b_idx], logits[b_idx], y_batch[b_idx], preds[b_idx], kappa[b_idx])
 
     print(f'mean kappa : {np.mean(kappa)}')
     if args.save_eval :
         print(f'prediction saved at {args.fig_folder}')
 
- 
-
     return 0
 
 
-def plot(shotno, logits, gt, preds):
+def plot(shotno, logits, gt, preds, score):
     fig, ax = plt.subplots()
-    ax.set_title(shotno)
+    ax.set_title(f"{shotno} - score {score:.3f}")
     ax.plot(logits, label='logits', linestyle='--' )
     ax.plot(gt, label='ground truth', alpha=0.8)
-    ax.plot(preds.squeeze(), label='output', linestyle=':')
+    ax.plot(preds.squeeze(), label='output', linestyle='-.')
     save_path = os.path.join(args.fig_folder, f"{shotno}")
+    ax.legend()
     fig.savefig(save_path)
     plt.close()
 
@@ -151,16 +156,16 @@ if __name__ == '__main__':
     parser.add_argument('--l1_sigma', default=0, type=float)
     parser.add_argument('--dropout_rate', default=0, type=float)
     parser.add_argument('--set_seed', action="store_false")
-    parser.add_argument('--max_length', help='maximum length of the sequence', type=int)
+    parser.add_argument('--max_length', help='maximum length of the sequence', type=int, default=4096)
     parser.add_argument('--batch_size', type=int)
     parser.add_argument('--patience', default = 0, type=int)
     parser.add_argument('--delta', default = 1e-3, type=float)
-    parser.add_argument('--early_stop_delta', default=1e-3, type=float)
     parser.add_argument('--model_path', default="models")
     parser.add_argument('--n_epoch', default=200, type=int)
     parser.add_argument('--save_plots', action="store_false")
     parser.add_argument('--fig_folder', default="figs")
     parser.add_argument('--save_eval', action="store_false")
+    parser.add_argument('--features', nargs='+', default=['max_energies', 'N1'])
 
     # try :
     #     args = parser.parse_args()
