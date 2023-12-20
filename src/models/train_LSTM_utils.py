@@ -12,8 +12,9 @@ import torch.optim as optim
 import torch.nn as nn
 
 
-def train(model,train_loader, val_loader, optimizer, criterion, device, 
-            n_epochs = 10, early_stopping = None, l1_sigma=0, compute_score = None ):
+def train(model, train_loader, val_loader, optimizer, criterion, device, 
+          n_epochs = 10, l1_sigma=0, compute_objective = None, 
+          direction="minimize" , patience=0, delta=1e-5, model_path="models"):
     
     """
         Helper used to train the given model and plot the losses after the training
@@ -37,8 +38,10 @@ def train(model,train_loader, val_loader, optimizer, criterion, device,
                 Module used to track the early stop condition and save the best model
             l1_sigma : float, optional
                 Sigma used of the L1 regularization
-            comptue_score : func, optional
+            compute_objective : func, optional
                 Function used to compute the score using the validation data
+            direction : str, optional
+                objective direction, can be minimize or maximize
     """
 
     model.to(device)
@@ -48,9 +51,15 @@ def train(model,train_loader, val_loader, optimizer, criterion, device,
 
     scores_list = []
 
-    eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_score)
+    early_stopping = None
+    
+    if patience != 0:
+        early_stopping = EarlyStopping(model_path, patience, delta, direction)
+
+
+    eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_objective)
     val_losses.append(eval_loss)
-    if compute_score is not None:
+    if compute_objective is not None:
         scores_list.append(scores.item())
 
     with tqdm(range(n_epochs)) as pbar: 
@@ -65,10 +74,9 @@ def train(model,train_loader, val_loader, optimizer, criterion, device,
                                            leave=False)
             train_losses += epoch_losses
 
-            eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_score)
+            eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_objective)
             val_losses.append(eval_loss)
-
-            if compute_score is not None :
+            if compute_objective is not None :
                 scores_list.append(scores.item())
             else :
                 scores = eval_loss
@@ -82,7 +90,7 @@ def train(model,train_loader, val_loader, optimizer, criterion, device,
     
     plot_losses(train_losses, val_losses)
 
-    if compute_score is not None:
+    if compute_objective  is not None:
         plt.plot(np.array(scores_list))
         plt.show()
 
@@ -142,7 +150,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, 
 
     return batch_losses
 
-def run_validation(model, val_loader, criterion, device, compute_score = None) :
+def run_validation(model, val_loader, criterion, device, compute_objective = None) :
     """"
         Compute the score and the loss of the validation data
 
@@ -155,7 +163,7 @@ def run_validation(model, val_loader, criterion, device, compute_score = None) :
                 criterion used to compute the loss
             device : str
                 Used to move the tensor to the correct device
-            comptue_score : func, optional
+            compute_objective : func, optional
                 Function used to compute the score using the validation data
         
         Return 
@@ -167,23 +175,23 @@ def run_validation(model, val_loader, criterion, device, compute_score = None) :
 
     model.eval()    
     running_val_loss = 0
-    scores = torch.tensor([]).to(device)
+    scores = []
 
     with torch.no_grad():
         for x_batch, y_batch in val_loader :
 
             x_batch = x_batch.to(device)
-            y_batch = y_batch.to(device)
 
             output = model(x_batch)
-            y_batch = y_batch.to(torch.float32)
-            loss = criterion(output, y_batch)
+            loss = criterion(output, y_batch.to(device))
 
-            if compute_score is not None:
-                scores = torch.cat((compute_score(output, y_batch), scores))
+            if compute_objective is not None:
+                scores += compute_objective(output, y_batch)
 
             running_val_loss += loss.item()
-    return running_val_loss / len(val_loader), torch.mean(scores)
+
+    return running_val_loss / len(val_loader), np.mean(scores) if len(scores) != 0 else 0
+
 
 def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
            k_fold=5, n_epochs = 1, l1_sigma=0, batch_size=1, threshold=0.8, disable_pbar=False) :
@@ -278,6 +286,7 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
             total_recall = 0
             total_f1 = 0
             total_kappa = 0
+
             for x_batch, y_batch in val_loader:
 
                 x_batch = x_batch.to(device)
@@ -288,17 +297,17 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
 
                 preds = create_output(logits, threshold).to(device)
 
-                total_accuracy += torch.sum(compute_accuracy(preds, y_batch)) 
-                total_precision += torch.sum(compute_precision(preds, y_batch))
-                total_recall += torch.sum(compute_recall(preds, y_batch)) 
-                total_f1 += torch.sum(compute_f1(preds, y_batch))
-                total_kappa += torch.sum(compute_kappa_score(preds, y_batch))
+                total_accuracy += torch.sum(compute_accuracy(preds, y_batch)) / y_batch.shape[0]
+                total_precision += torch.sum(compute_precision(preds, y_batch)) / y_batch.shape[0] 
+                total_recall += torch.sum(compute_recall(preds, y_batch)) / y_batch.shape[0] 
+                total_f1 += torch.sum(compute_f1(preds, y_batch)) / y_batch.shape[0] 
+                total_kappa += torch.sum(compute_kappa_score(preds, y_batch)) / y_batch.shape[0] 
 
-            mean_accuracy += total_accuracy / len(val_loader.dataset) / k_fold
-            mean_precision += total_precision / len(val_loader.dataset) / k_fold
-            mean_recall += total_recall / len(val_loader.dataset) / k_fold
-            mean_f1 += total_f1 / len(val_loader.dataset) / k_fold       
-            mean_kappa += total_kappa / len(val_loader.dataset) /k_fold       
+            mean_accuracy += total_accuracy / k_fold
+            mean_precision += total_precision / k_fold
+            mean_recall += total_recall / k_fold
+            mean_f1 += total_f1 / k_fold       
+            mean_kappa += total_kappa / k_fold    
     
     return {'accuracy': mean_accuracy.item(),
             'precision' : mean_precision.item(),
