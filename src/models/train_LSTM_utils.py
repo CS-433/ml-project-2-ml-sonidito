@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
+import os
 
 from models.metrics import *
 from models.early_stopping import EarlyStopping
@@ -14,7 +15,7 @@ import torch.nn as nn
 
 def train(model, train_loader, val_loader, optimizer, criterion, device, 
           n_epochs = 10, l1_sigma=0, compute_objective = None, 
-          direction="minimize" , patience=0, delta=1e-5, model_path="models", save_plots=False):
+          direction="minimize" , patience=0, delta=1e-5, model_path="models", save_plots=False, plot_folder=None):
     
     """
         Helper used to train the given model and plot the losses after the training
@@ -88,15 +89,10 @@ def train(model, train_loader, val_loader, optimizer, criterion, device,
                     model = torch.load(early_stopping.save_path) # laod best model
                     break
 
-    plot_losses(train_losses, val_losses, save_plots)
+    plot_losses(train_losses, val_losses, save_plots, plot_folder)
 
     if compute_objective  is not None:
-        fig, ax = plt.subplots()
-        ax.plot(np.array(scores_list))
-        ax.set_title("Score across epochs")
-        ax.set_xlabel("iterations")
-        ax.set_ylabel("score")
-        fig.savefig("LSTM_score")
+        plot_scores(scores_list, save_plots, plot_folder)
 
 
 
@@ -129,7 +125,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, 
     model.train()
     batch_losses = []
     with tqdm(train_loader, unit='batch', disable=disable_progress_bar, leave=leave) as tepoch:
-        for x_batch, y_batch in tepoch :
+        for (x_batch, shotno), y_batch in tepoch :
             tepoch.set_description(f'Epoch {epoch+1}')
 
             x_batch = x_batch.to(device)
@@ -183,7 +179,7 @@ def run_validation(model, val_loader, criterion, device, compute_objective = Non
     scores = []
 
     with torch.no_grad():
-        for x_batch, y_batch in val_loader :
+        for (x_batch, shotno), y_batch in val_loader :
 
             x_batch = x_batch.to(device)
 
@@ -292,7 +288,7 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
             total_f1 = 0
             total_kappa = 0
 
-            for x_batch, y_batch in val_loader:
+            for (x_batch, shotno), y_batch in val_loader:
 
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device)
@@ -323,7 +319,7 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
             'val_loss' : mean_eval_loss}
 
 
-def plot_losses(train_losses, val_losses, save_plots):
+def plot_losses(train_losses, val_losses, save_plots, plot_folder):
     """
         Plot the train and validation on the same plot
     """
@@ -335,17 +331,19 @@ def plot_losses(train_losses, val_losses, save_plots):
     ax.set_xlabel('iterations')
     ax.legend()
     if save_plots:
-        fig.savefig("LSTM_loss")
+        path = os.path.join(plot_folder, "LSTM_loss")
+        fig.savefig(path)
     else:
         plt.show()
 
-def plot_scores(scores_list, save_plots):
+def plot_scores(scores_list, save_plots, plot_folder):
     fig, ax = plt.subplots()
     ax.plot(scores_list)
     ax.set_title("Score across epochs")
     ax.set_xlabel("iterations")
     ax.set_ylabel("score")
     if save_plots:
-        fig.savefig("LSTM_score")
+        path = os.path.join(plot_folder, "LSTM_score")
+        fig.savefig(path)
     else:
         plt.show()

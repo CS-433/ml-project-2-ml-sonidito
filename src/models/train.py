@@ -7,6 +7,7 @@ import torch.optim as optim
 import numpy as np
 import os
 import matplotlib
+import matplotlib.pyplot as plt
 
 from data.LSTM_dataset import LSTMDataset, create_preds
 from simple_LSTM import *
@@ -39,10 +40,11 @@ def main(args) :
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size)
     val_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size)
     print(f'train size : {len(train_set)}, val size : {len(test_set)}')
+    print(f'batch_siez={args.batch_size}')
 
     pos_weight = compute_pos_weight(train_loader) 
 
-    model = SimpleLSTM(dataset[0][0].shape[1], 
+    model = SimpleLSTM(dataset[0][0][0].shape[1], 
                        args.hidden_size, 
                        args.num_layers, 
                        dropout_rate=args.dropout_rate)
@@ -61,6 +63,10 @@ def main(args) :
     if not os.path.exists(args.model_path) :
         os.makedirs(args.model_path)
 
+    if args.save_plots and not os.path.exists(args.fig_folder) :
+        os.makedirs(args.fig_folder)
+
+
     print("start the training")
     train(model, 
       train_loader, 
@@ -75,24 +81,48 @@ def main(args) :
       patience=args.patience,
       delta=args.delta,
       model_path=save_path,
-      save_plots=args.save_plots)
+      save_plots=args.save_plots,
+      plot_folder=args.fig_folder)
         
     torch.save(model, save_path)
+    print(f"model saved at {save_path}")
 
     print("Evaluation...")
     kappa = []
 
-    for x_batch, y_batch in val_loader :
+    for (x_batch, shotno), y_batch in val_loader :
         x_batch = x_batch.to(device)
         
         logits = torch.sigmoid(model(x_batch)).detach().cpu()
         preds = create_preds(logits)
 
+
         kappa += compute_kappa_score(preds, y_batch)
+        if args.save_eval :
+            if args.batch_size is None :
+                plot(shotno, logits, y_batch, preds)
+            else :
+                for b_idx in range(len(shotno)):
+                    plot(shotno[b_idx], logits[b_idx], y_batch[b_idx], preds[b_idx])
 
     print(f'mean kappa : {np.mean(kappa)}')
+    if args.save_eval :
+        print(f'prediction saved at {args.fig_folder}')
+
+ 
 
     return 0
+
+
+def plot(shotno, logits, gt, preds):
+    fig, ax = plt.subplots()
+    ax.set_title(shotno)
+    ax.plot(logits, label='logits', linestyle='--' )
+    ax.plot(gt, label='ground truth', alpha=0.8)
+    ax.plot(preds.squeeze(), label='output', linestyle=':')
+    save_path = os.path.join(args.fig_folder, f"{shotno}")
+    fig.savefig(save_path)
+    plt.close()
 
 def comptue_score(logits, labels):
 
@@ -129,6 +159,8 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', default="models")
     parser.add_argument('--n_epoch', default=200, type=int)
     parser.add_argument('--save_plots', action="store_false")
+    parser.add_argument('--fig_folder', default="figs")
+    parser.add_argument('--save_eval', action="store_false")
 
     # try :
     #     args = parser.parse_args()

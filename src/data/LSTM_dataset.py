@@ -104,7 +104,7 @@ class LSTMDataset(Dataset):
             self.padding()
 
     def __len__(self):
-        return len(self.all_shots)
+        return len(self.features)
 
     def __getitem__(self, idx):
         if self.features_selection is not None:
@@ -112,7 +112,7 @@ class LSTMDataset(Dataset):
         else:
             input = [self.features[idx][key].numpy() for key in self.features[idx].keys()]
 
-        return torch.tensor(input, dtype=torch.float32).swapaxes(0,1), self.labels[idx]
+        return (torch.tensor(input, dtype=torch.float32).swapaxes(0,1), self.all_shots[idx]), self.labels[idx]
 
     def load_shot(self, shotno, data_path, file_ext, use_pickle):
         with open(os.path.join(data_path, f"{shotno}.{file_ext}"), "rb") as f:
@@ -262,7 +262,7 @@ class LSTMDataset(Dataset):
         Parameters 
             data : list
                 label data, 2 equals perturbation, 1 otherwise
-            spec_time : list
+            spec_time : torch.tensor
                 Timestamp of the spectrogram
 
         Return 
@@ -275,7 +275,10 @@ class LSTMDataset(Dataset):
         labels = data['label']
 
         perturbation_idx = np.where(labels == 2)[0] # Retrieve idx where a perturbation occurred
-        true_labels = torch.zeros(len(spec_time))
+        if self.max_length is None :
+            true_labels = torch.zeros((spec_time >= label_time[0]).sum())  
+        else :
+            true_labels = torch.zeros(self.max_length) 
 
         for _, g in groupby(enumerate(perturbation_idx), lambda k: k[0] - k[1]): # Iterate by positive block
             start = next(g)[1]
@@ -288,17 +291,11 @@ class LSTMDataset(Dataset):
                 continue
 
             # Search the idx in the spectrogram where it contains the perturbation
-            idx = torch.where((spec_time >=  start_time) & (spec_time <= end_time)) 
+            idx = torch.where((spec_time >=  start_time) & (spec_time <= end_time))[0]
+            idx = idx[idx < len(true_labels)]
+            if len(idx) == 0:
+                break
             true_labels[idx] = 1
-
-        # Cut or pad if necessary 
-        if self.max_length is not None:
-            if len(true_labels) > self.max_length:
-                true_labels = true_labels[:self.max_length]
-            elif len(true_labels) < self.max_length:
-                temp = torch.zeros(self.max_length)
-                temp[:true_labels.shape[0]] = true_labels
-                true_labels = temp
 
         return true_labels
 
@@ -306,16 +303,20 @@ class LSTMDataset(Dataset):
         """
             Remove from the data that contains only negative label
         """
-        indexes = np.where((np.array(self.labels) == 0).all(axis = 1))[0]
-        
+
+        if self.max_length is None :
+            indexes = []
+            for idx, label in enumerate(self.labels):
+                if (label == 0).all() :
+                    indexes.append(idx)
+        else:  
+            indexes = np.where((np.array(self.labels) == 0).all(axis = 1))[0]
+            
         if len(indexes) > 0 :
             print(f"deleted {len(indexes)} data that doesn't have any mode")
             self.labels = [elem for idx, elem in enumerate(self.labels) if idx not in indexes]
             self.features = [elem for idx, elem in enumerate(self.features) if idx not in indexes]
             self.all_shots = [elem for idx, elem in enumerate(self.all_shots) if idx not in indexes]
-
-            assert len(self.labels) == len(self.features)
-
     
 def create_preds(logits, threshold=0.8):
     """
