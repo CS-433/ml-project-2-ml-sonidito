@@ -94,6 +94,7 @@ def train(model, train_loader, val_loader, optimizer, criterion, device,
     if compute_objective  is not None:
         plot_scores(scores_list, save_plots, plot_folder)
 
+    return model
 
 
 def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device, disable_progress_bar=False, leave=True):
