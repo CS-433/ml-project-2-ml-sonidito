@@ -61,6 +61,7 @@ def train(model, train_loader, val_loader, optimizer, criterion, device,
     eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_objective)
     val_losses.append(eval_loss)
     if compute_objective is not None:
+        scores = torch.mean(torch.tensor(scores))
         scores_list.append(scores.item())
 
     with tqdm(range(n_epochs)) as pbar: 
@@ -78,6 +79,7 @@ def train(model, train_loader, val_loader, optimizer, criterion, device,
             eval_loss, scores = run_validation(model, val_loader, criterion, device, compute_objective)
             val_losses.append(eval_loss)
             if compute_objective is not None :
+                scores = torch.mean(torch.tensor(scores))
                 scores_list.append(scores.item())
             else :
                 scores = eval_loss
@@ -192,7 +194,7 @@ def run_validation(model, val_loader, criterion, device, compute_objective = Non
 
             running_val_loss += loss.item()
 
-    return running_val_loss / len(val_loader), np.mean(scores) if len(scores) != 0 else 0
+    return running_val_loss / len(val_loader), scores
 
 
 def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
@@ -289,6 +291,8 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
             total_f1 = 0
             total_kappa = 0
 
+            count = 0
+
             for (x_batch, shotno), y_batch in val_loader:
 
                 x_batch = x_batch.to(device)
@@ -299,17 +303,19 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
 
                 preds = create_output(logits, threshold).to(device)
 
-                total_accuracy += torch.sum(compute_accuracy(preds, y_batch)) / y_batch.shape[0]
-                total_precision += torch.sum(compute_precision(preds, y_batch)) / y_batch.shape[0] 
-                total_recall += torch.sum(compute_recall(preds, y_batch)) / y_batch.shape[0] 
-                total_f1 += torch.sum(compute_f1(preds, y_batch)) / y_batch.shape[0] 
-                total_kappa += torch.sum(compute_kappa_score(preds, y_batch)) / y_batch.shape[0] 
+                total_accuracy += torch.sum(compute_accuracy(preds, y_batch)) 
+                total_precision += torch.sum(compute_precision(preds, y_batch)) 
+                total_recall += torch.sum(compute_recall(preds, y_batch)) 
+                total_f1 += torch.sum(compute_f1(preds, y_batch))
+                total_kappa += torch.sum(compute_kappa_score(preds, y_batch))
 
-            mean_accuracy += total_accuracy / k_fold
-            mean_precision += total_precision / k_fold
-            mean_recall += total_recall / k_fold
-            mean_f1 += total_f1 / k_fold       
-            mean_kappa += total_kappa / k_fold    
+                count += x_batch.shape[0]
+
+            mean_accuracy += total_accuracy / k_fold / count
+            mean_precision += total_precision / k_fold / count
+            mean_recall += total_recall / k_fold / count
+            mean_f1 += total_f1 / k_fold / count
+            mean_kappa += total_kappa / k_fold / count
     
     return {'accuracy': mean_accuracy.item(),
             'precision' : mean_precision.item(),
