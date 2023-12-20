@@ -102,7 +102,7 @@ def train(model, train_loader, test_loader, optimizer, scheduler, criterion, dev
             f"Epoch {epoch} | Train accuracy: {torch.tensor(train_acc).mean().item():.5f}, "
             f"f1: {torch.tensor(train_f1).mean().item():.5f}, "
             f"roc-auc: {torch.tensor(train_roc_auc).mean().item():.5f}\n "
-            f"           Test accuracy: {torch.tensor(val_acc).mean().item():.5f}, "
+            f"    Validation accuracy: {torch.tensor(val_acc).mean().item():.5f}, "
             f"f1: {torch.tensor(val_f1).mean().item():.5f}, "
             f"roc-auc: {torch.tensor(val_roc_auc).mean().item():.5f}"
         )
