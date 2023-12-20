@@ -6,15 +6,22 @@ import torch
 import torch.optim as optim
 import numpy as np
 import os
+import matplotlib
 
 from data.LSTM_dataset import LSTMDataset, create_preds
 from simple_LSTM import *
-from early_stopping import EarlyStopping
 from metrics import *
 from train_LSTM_utils import train
 
+font = {'size' : 18}
+
+matplotlib.rc('font', **font)
+matplotlib.rcParams['figure.figsize'] = (10, 8)
+matplotlib.rcParams['figure.dpi'] = 150
+
 
 def main(args) :
+
     if args.set_seed :
         torch.manual_seed(0)
         np.random.seed(0)
@@ -35,7 +42,7 @@ def main(args) :
 
     pos_weight = compute_pos_weight(train_loader) 
 
-    model = SimpleLSTM(args.input_size, 
+    model = SimpleLSTM(dataset[0][0].shape[1], 
                        args.hidden_size, 
                        args.num_layers, 
                        dropout_rate=args.dropout_rate)
@@ -51,6 +58,8 @@ def main(args) :
     print(f'The model has {num_params:,} trainable parameters')
 
     save_path = os.path.join(args.model_path, "lstm.pt")
+    if not os.path.exists(args.model_path) :
+        os.makedirs(args.model_path)
 
     print("start the training")
     train(model, 
@@ -63,10 +72,11 @@ def main(args) :
       n_epochs=args.n_epoch,
       l1_sigma=args.l1_sigma,
       direction="maximize",
-      patience=args.atience,
+      patience=args.patience,
       delta=args.delta,
-      model_path=args.save_path)
-    
+      model_path=save_path,
+      save_plots=args.save_plots)
+        
     torch.save(model, save_path)
 
     print("Evaluation...")
@@ -85,6 +95,7 @@ def main(args) :
     return 0
 
 def comptue_score(logits, labels):
+
       logits = torch.sigmoid(logits).detach()
       preds = create_preds(logits)
       return compute_kappa_score(preds, labels)
@@ -96,7 +107,6 @@ def compute_pos_weight(data):
         labels = item[1]
         size += len(labels.flatten())
         nb_pos +=(labels == 1).sum()
-    print(f'size={size}, nb_pos={nb_pos}')
     return (size - nb_pos) / nb_pos
 
 
@@ -105,26 +115,32 @@ if __name__ == '__main__':
 
     parser.add_argument('dataset_root' , help='root folder of the data, should contains either dataset_pickle or dataset_hickle and MHD_labels folder')
     parser.add_argument('hidden_size', type=int)
-    parser.add_argument('num_layer', type=int)
+    parser.add_argument('num_layers', type=int)
     parser.add_argument('lr', type=float)
     parser.add_argument('--weight_decay', default=0, type=float)
     parser.add_argument('--l1_sigma', default=0, type=float)
     parser.add_argument('--dropout_rate', default=0, type=float)
-    parser.add_argument('--set_seed', action="store_true", type=int)
+    parser.add_argument('--set_seed', action="store_false")
     parser.add_argument('--max_length', help='maximum length of the sequence', type=int)
     parser.add_argument('--batch_size', type=int)
     parser.add_argument('--patience', default = 0, type=int)
+    parser.add_argument('--delta', default = 1e-3, type=float)
     parser.add_argument('--early_stop_delta', default=1e-3, type=float)
     parser.add_argument('--model_path', default="models")
     parser.add_argument('--n_epoch', default=200, type=int)
+    parser.add_argument('--save_plots', action="store_false")
 
-    try :
-        args = parser.parse_args()
+    # try :
+    #     args = parser.parse_args()
 
-        exit(main(args))
-    except:
-        parser.print_help()
-        exit(0)
+    #     exit(main(args))
+    # except:
+    #     parser.print_help()
+    #     exit(0)
+
+    args = parser.parse_args()
+    exit(main(args))
+
 
     
 

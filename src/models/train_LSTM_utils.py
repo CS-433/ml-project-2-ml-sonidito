@@ -14,7 +14,7 @@ import torch.nn as nn
 
 def train(model, train_loader, val_loader, optimizer, criterion, device, 
           n_epochs = 10, l1_sigma=0, compute_objective = None, 
-          direction="minimize" , patience=0, delta=1e-5, model_path="models"):
+          direction="minimize" , patience=0, delta=1e-5, model_path="models", save_plots=False):
     
     """
         Helper used to train the given model and plot the losses after the training
@@ -87,12 +87,17 @@ def train(model, train_loader, val_loader, optimizer, criterion, device,
                 if early_stopping.early_stop(scores, model):
                     model = torch.load(early_stopping.save_path) # laod best model
                     break
-    
-    plot_losses(train_losses, val_losses)
+
+    plot_losses(train_losses, val_losses, save_plots)
 
     if compute_objective  is not None:
-        plt.plot(np.array(scores_list))
-        plt.show()
+        fig, ax = plt.subplots()
+        ax.plot(np.array(scores_list))
+        ax.set_title("Score across epochs")
+        ax.set_xlabel("iterations")
+        ax.set_ylabel("score")
+        fig.savefig("LSTM_score")
+
 
 
 def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, device, disable_progress_bar=False, leave=True):
@@ -318,15 +323,29 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
             'val_loss' : mean_eval_loss}
 
 
-def plot_losses(train_losses, val_losses):
+def plot_losses(train_losses, val_losses, save_plots):
     """
         Plot the train and validation on the same plot
     """
+    fig, ax = plt.subplots()
+    ax.plot(np.linspace(0, len(val_losses)-1, len(train_losses)), train_losses, label='train')
+    ax.plot(val_losses, label='validation')
+    ax.set_title("loss")
+    ax.set_ylabel('loss')
+    ax.set_xlabel('iterations')
+    ax.legend()
+    if save_plots:
+        fig.savefig("LSTM_loss")
+    else:
+        plt.show()
 
-    plt.plot(np.linspace(0, len(val_losses)-1, len(train_losses)), train_losses, label='train')
-    plt.plot(val_losses, label='validation')
-    plt.title("loss")
-    plt.ylabel('loss')
-    plt.xlabel('iterations')
-    plt.legend()
-    plt.show()
+def plot_scores(scores_list, save_plots):
+    fig, ax = plt.subplots()
+    ax.plot(scores_list)
+    ax.set_title("Score across epochs")
+    ax.set_xlabel("iterations")
+    ax.set_ylabel("score")
+    if save_plots:
+        fig.savefig("LSTM_score")
+    else:
+        plt.show()
