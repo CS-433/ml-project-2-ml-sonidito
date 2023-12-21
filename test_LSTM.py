@@ -37,26 +37,30 @@ def main(args) :
         os.mkdir(args.result_folder)
     model.eval()
     with torch.no_grad():
-        for (x_batch, shotno) in dataloader:
+        for (x_batch, metadata) in dataloader:
+
+            shotno = metadata['shotno']
             x_batch = x_batch.to(device)
 
             output = model(x_batch)
             logits = torch.sigmoid(output).detach().cpu()
             preds = create_preds(logits)
 
+            time = metadata['time']
+
             if args.batch_size is None :
-                plot(shotno, logits, preds)
+                plot(shotno, logits, preds, time)
             else :
                 for b_idx in range(len(shotno)):
-                    plot(shotno[b_idx], logits[b_idx], preds[b_idx])
+                    plot(shotno[b_idx], logits[b_idx], preds[b_idx], time[b_idx])
 
     return 0
 
-def plot(shotno, logits, preds):
-    fig, ax = plt.subplots()
+def plot(shotno, logits, preds, time):
+    fig, ax = plt.subplots(figsize=(10, 6))
     ax.set_title(f"{shotno}")
-    ax.plot(logits, label='logits', linestyle='--' )
-    ax.plot(preds.squeeze(), label='output', linestyle='-')
+    ax.plot(time, logits, label='logits', linestyle='--' )
+    ax.plot(time, preds.squeeze(), label='output', linestyle='-')
     save_path = os.path.join(args.result_folder, f"{shotno}")
     ax.legend()
     fig.savefig(save_path)

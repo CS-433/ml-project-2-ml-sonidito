@@ -70,6 +70,8 @@ class LSTMDataset(Dataset):
         self.features = []
         self.labels = []
 
+        self.time = []
+
         # Standardization of the energy
         self.min = {'max_energies' : 0,
                     'N0' : 0,
@@ -115,10 +117,14 @@ class LSTMDataset(Dataset):
         else:
             input = [self.features[idx][key].numpy() for key in self.features[idx].keys()]
 
-        if self.without_label:
-            return (torch.tensor(input, dtype=torch.float32).swapaxes(0,1), self.all_shots[idx])
+        data = (torch.tensor(input, dtype=torch.float32).swapaxes(0,1), 
+                {'shotno' : self.all_shots[idx],
+                  'time' : self.time[idx] })
 
-        return (torch.tensor(input, dtype=torch.float32).swapaxes(0,1), self.all_shots[idx]), self.labels[idx]
+        if self.without_label:
+            return data
+
+        return data , self.labels[idx]
 
     def load_shot(self, shotno, data_path, file_ext, use_pickle):
         with open(os.path.join(data_path, f"{shotno}.{file_ext}"), "rb") as f:
@@ -220,6 +226,8 @@ class LSTMDataset(Dataset):
         if self.transform != None:
             spec_odd = self.transform(spec_odd)
 
+        self.time.append(torch.tensor(spec_time))
+
         # max_energies, position = self.compute_max_energy(spec_odd, f)
         max_energies = self.compute_max_energy(spec_odd, f)
 
@@ -255,12 +263,15 @@ class LSTMDataset(Dataset):
                 if len(data['max_energies']) > self.max_length:
                     for k, v in data.items():
                         self.features[idx][k] = v[:self.max_length]
+                    self.time[idx] = self.time[idx][:self.max_length]
                 elif len(data) < self.max_length:
                     for k, v in data.items():
                         temp = torch.zeros(self.max_length)
                         temp[:v.size(0)] = v
                         self.features[idx][k] = temp
-        
+                    temp = torch.zeros(self.max_length)
+                    temp[:self.time[idx].size(0)] = self.time[idx]
+                    self.time[idx] = temp
     
     def process_labels(self, data, spec_time):
         """

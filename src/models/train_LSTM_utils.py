@@ -14,7 +14,7 @@ import torch.nn as nn
 
 
 def train(model, train_loader, val_loader, optimizer, criterion, device, 
-          n_epochs = 10, l1_sigma=0, compute_objective = None, 
+          n_epochs = 10, l1_sigma=0, compute_objective = None,
           direction="minimize" , patience=0, delta=1e-5, model_path="models", save_plots=False, plot_folder=None):
     
     """
@@ -128,7 +128,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, epoch, l1_sigma, 
     model.train()
     batch_losses = []
     with tqdm(train_loader, unit='batch', disable=disable_progress_bar, leave=leave) as tepoch:
-        for (x_batch, shotno), y_batch in tepoch :
+        for (x_batch, metadata), y_batch in tepoch :
             tepoch.set_description(f'Epoch {epoch+1}')
 
             x_batch = x_batch.to(device)
@@ -182,7 +182,7 @@ def run_validation(model, val_loader, criterion, device, compute_objective = Non
     scores = []
 
     with torch.no_grad():
-        for (x_batch, shotno), y_batch in val_loader :
+        for (x_batch, metadata), y_batch in val_loader :
 
             x_batch = x_batch.to(device)
 
@@ -293,7 +293,7 @@ def k_fold(dataset, model, criterion, device, lr, weight_decay, create_output,
 
             count = 0
 
-            for (x_batch, shotno), y_batch in val_loader:
+            for (x_batch, metadata), y_batch in val_loader:
 
                 x_batch = x_batch.to(device)
                 y_batch = y_batch.to(device)

@@ -23,7 +23,6 @@ matplotlib.rcParams['figure.dpi'] = 150
 
 def main(args) :
 
-    g = None
     if args.set_seed :
         print("Seed fixed")
         torch.manual_seed(0)
@@ -48,7 +47,7 @@ def main(args) :
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size)
     val_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size)
     print(f'train size : {len(train_set)}, val size : {len(test_set)}')
-    print(f'batch_siez={args.batch_size}')
+    print(f'batch_size={args.batch_size}')
 
     pos_weight = compute_pos_weight(train_loader) 
 
@@ -75,8 +74,6 @@ def main(args) :
     if args.save_plots and not os.path.exists(args.fig_folder) :
         os.makedirs(args.fig_folder)
 
-    print(args.save_plots)
-
     print("start the training")
     model = train(model, 
       train_loader, 
@@ -99,41 +96,48 @@ def main(args) :
 
     print("Evaluation...")
     kappa = []
+    f1 = []
 
-    for (x_batch, shotno), y_batch in val_loader :
+    for (x_batch, metadata), y_batch in val_loader :
+        shotno = metadata['shotno']
         x_batch = x_batch.to(device)
         
         logits = torch.sigmoid(model(x_batch)).detach().cpu()
         preds = create_preds(logits)
 
         kappa += compute_kappa_score(preds, y_batch)
+        f1 += compute_f1(preds, y_batch)
+
+        time = metadata['time']
+
         if args.save_eval :
             if args.batch_size is None :
-                plot(shotno, logits, y_batch, preds, kappa)
+                plot(shotno, logits, y_batch, preds, kappa, time)
             else :
                 for b_idx in range(len(shotno)):
-                    plot(shotno[b_idx], logits[b_idx], y_batch[b_idx], preds[b_idx], kappa[b_idx])
+                    plot(shotno[b_idx], logits[b_idx], y_batch[b_idx], preds[b_idx], kappa[b_idx], time[b_idx])
 
     print(f'mean kappa : {np.mean(kappa)}')
+    print(f'mean f1 : {np.mean(f1)}')
+
     if args.save_eval :
         print(f'prediction saved at {args.fig_folder}')
 
     return 0
 
 
-def plot(shotno, logits, gt, preds, score):
-    fig, ax = plt.subplots()
+def plot(shotno, logits, gt, preds, score, time):
+    fig, ax = plt.subplots(figsize=(10, 6))
     ax.set_title(f"{shotno} - score {score:.3f}")
-    ax.plot(logits, label='logits', linestyle='--' )
-    ax.plot(gt, label='ground truth', alpha=0.8)
-    ax.plot(preds.squeeze(), label='output', linestyle='-.')
-    save_path = os.path.join(args.fig_folder, f"{shotno}")
+    ax.plot(time, logits, label='logits', linestyle='--' )
+    ax.plot(time, gt, label='ground truth', alpha=0.8)
+    ax.plot(time, preds.squeeze(), label='output', linestyle='-.')
     ax.legend()
+    save_path = os.path.join(args.fig_folder, f"{shotno}")
     fig.savefig(save_path)
     plt.close()
 
 def comptue_score(logits, labels):
-
       logits = torch.sigmoid(logits).detach()
       preds = create_preds(logits)
       return compute_kappa_score(preds, labels)
@@ -144,7 +148,7 @@ def compute_pos_weight(data):
     for _, labels in data:
         size += len(labels.flatten())
         nb_pos +=(labels == 1).sum()
-    print(f'size={size}, nb_pos={nb_pos}')
+        
     return (size - nb_pos) / nb_pos
 
 
