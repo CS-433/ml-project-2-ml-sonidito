@@ -69,12 +69,12 @@ def plot(shotno, logits, preds, time):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('model_path')
-    parser.add_argument('data_dir')
-    parser.add_argument('--max_length', help='maximum length of the sequence', type=int)
-    parser.add_argument('--batch_size', type=int)
-    parser.add_argument("--result_folder", default="result")
-    parser.add_argument('--features', nargs='+', default=['max_energies', 'N1'])
+    parser.add_argument('model_path', help="path of the model")
+    parser.add_argument('data_dir', help="folder containing data to predict")
+    parser.add_argument('--max_length', type=int, help='maximum length of the sequence', )
+    parser.add_argument('--batch_size', type=int, help="Dataloader batch size")
+    parser.add_argument("--result_folder", default="result", help="path where the prediction will be saved")
+    parser.add_argument('--features', nargs='+', default=['max_energies', 'N1'], help="Features used to train loaded model")
 
     args = parser.parse_args()
     exit(main(args))
