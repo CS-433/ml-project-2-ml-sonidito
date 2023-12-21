@@ -13,3 +13,6 @@ dependencies:
   - torchvision
   - ipykernel
   - scikit-learn
+  - timm
+  - torchsummary
+  - pandas

@@ -3,7 +3,7 @@
 
 # ML4Science : Image processing/pattern recognition on MHD spectrograms to automate the detection of phase in the discharge characterized by Magneto-HydroDynamic instabilities
 
-## Getting Start
+## Getting Started
 
 Requirements :
 
@@ -34,7 +34,8 @@ python .\test_LSTM.py .\models\lstm.pt .\data\ --max_length=4293 --batch_size=12
 
 ## Repo structure
 
-The repo doesn't contain the dataset; it is the user's responsability to palce the data according to the specified structure.
+The repo doesn't contain the dataset; it is the user's responsability to place the data according to the specified structure.
+The dataset is available through this [SwitchDrive link](https://drive.switch.ch/index.php/s/K7BYcTRIZMupM7T).
 
 ```text
 ├───data
