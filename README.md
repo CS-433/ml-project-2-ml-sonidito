@@ -16,17 +16,21 @@ The conda environement can be create by runing this command
 conda env create -f environment.yml
 ```
 
-## Training
 
-### LSTM
+## LSTM
+
+For the LSTM model we provide two script, one to train the model another one to do inference
+
+### Training
+
+RUning this command will generate the same model saved the `models\` folder
 
 ```text
 python .\train_LSTM.py .\data\ 128 1 0.01 --weight_decay=1e-5 --l1_sigma=1e-4 --dropout_rate=0 --patience=0 --delta=1e-3 --model_path=models --n_epoch=400 --batch_size=128 --max_length=4293 
 ```
+### Inference
 
-## Testing
-
-### LSTM
+To use our model to predict with new data use this command. Make sure to adapt the path `.\data\`
 
 ```text
 python .\test_LSTM.py .\models\lstm.pt .\data\ --max_length=4293 --batch_size=128
@@ -48,4 +52,41 @@ The dataset is available through this [SwitchDrive link](https://drive.switch.ch
     ├───data
     └───models
 ```
+
+## Models
+
+This repo contains 3 models, 2 CNNs and 1 LSTM your can find below more information about our models
+
+### Number of parameters
+
+| **Model**           | **Number of Parameters** |
+|---------------------|--------------------------|
+| **LSTM**            | 78k                      |
+| **EfficientNet-B0** | 4.8M                     |
+| **ResNet-18**       | 11.3M                    |
+
+### Hyperparameters
+
+#### EfficientNet and ResNet
+
+| **Learning Rate**    | **Dropout rate** | **Weight decay** | **Batch size** |
+|----------------------|------------------|------------------|----------------|
+| $7  \times 10^{-5}$ | 0.3              | 1                | 64             |
+
+#### LSTM 
+
+| **lr** | **Hidden size** | **Num layer** | **Weight decay**   | **L1 sigma**       | **Batch size** |
+|--------|-----------------|---------------|--------------------|--------------------|----------------|
+| $0.01$ | $128$           | $1$           | $1 \times 10^{-5}$ | $1 \times 10^{-4}$ | 128            |
+
+
+## Result 
+
+| **Model**                               | **Cohen's kappa** | **F1 score** |
+|-----------------------------------------|-------------------|--------------|
+| **LSTM**                                | $0.882$           | $0.900$      |
+| **EfficientNet-B0 CNN**                 | $0.765$           | $0.828$      |
+| **ResNet18 CNN**                        | $0.663$           | $0.758$      |
+
+
 
