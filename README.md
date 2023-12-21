@@ -21,7 +21,7 @@ conda env create -f environment.yml
 ### LSTM
 
 ```text
-python .\train_LSTM.py .\data\ 32 1 0.001 --weight_decay=1e-3 --l1_sigma=1e-4 --dropout_rate=0 --patience=10 --delta=1e-3 --model_path=models --n_epoch=1000 --batch_size=128 --max_length=4293 
+python .\train_LSTM.py .\data\ 128 1 0.01 --weight_decay=1e-5 --l1_sigma=1e-4 --dropout_rate=0 --patience=0 --delta=1e-3 --model_path=models --n_epoch=400 --batch_size=128 --max_length=4293 
 ```
 
 ## Testing
