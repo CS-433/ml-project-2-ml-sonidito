@@ -39,6 +39,8 @@ class SimpleLSTM(nn.Module):
                             bidirectional = bidirectional,
                             batch_first=True)
         
+        self.bn = nn.BatchNorm1d(hidden_size * (self.bidirectional+1))
+        
         self.fc = nn.Sequential()
 
         # Create fully connected
@@ -60,7 +62,8 @@ class SimpleLSTM(nn.Module):
             h0 = torch.randn(self.num_layers * (self.bidirectional+1), self.hidden_size).to(input.device)
             c0 = torch.randn(self.num_layers * (self.bidirectional+1), self.hidden_size).to(input.device)
 
-        output, _ = self.lstm(input, (h0,c0))
+        output, _ = self.lstm(input, (h0,c0)) # output = (batch, seq, hidden size)
+        output = self.bn(output.permute(0,2,1)).permute(0,2,1)
         output = self.fc(output)
         output = output.squeeze(-1) # NOTE : No sigmoid, use LogitsLoss as criterion!
         return output
