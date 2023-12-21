@@ -64,6 +64,11 @@ def train(model, train_loader, val_loader, optimizer, criterion, device,
         scores = torch.mean(torch.tensor(scores))
         scores_list.append(scores.item())
 
+    best_score = float('inf')
+
+    if direction == "maximize":
+        best_score = -float('inf')
+
     with tqdm(range(n_epochs)) as pbar: 
         for epoch in pbar:
             epoch_losses = train_one_epoch(model, 
@@ -86,9 +91,17 @@ def train(model, train_loader, val_loader, optimizer, criterion, device,
 
             pbar.set_postfix(score=scores.item(), train_loss=np.mean(train_losses))
 
+            if direction == "minimize" : 
+                if scores < best_score:
+                    best_score = scores
+                    torch.save(model, model_path)
+            elif direction == "maximize" : 
+                if scores > best_score:
+                    best_score = scores
+                    torch.save(model, model_path)
+
             if early_stopping != None:
                 if early_stopping.early_stop(scores, model):
-                    model = torch.load(early_stopping.save_path) # laod best model
                     break
 
     plot_losses(train_losses, val_losses, save_plots, plot_folder)
@@ -96,6 +109,7 @@ def train(model, train_loader, val_loader, optimizer, criterion, device,
     if compute_objective  is not None:
         plot_scores(scores_list, save_plots, plot_folder)
 
+    model = torch.load(model_path) # laod best model
     return model
 
 
