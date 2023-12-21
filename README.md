@@ -38,8 +38,8 @@ python .\test_LSTM.py .\models\lstm.pt .\data\ --max_length=4293 --batch_size=12
 
 ## CNNs
 
-The CNN models training and evaluation pipelines are contained in their respective notebooks in `notebooks/resnet18_CNN.ipynb` and `notebooks/efficientnet_CNN.ipynb`. 
-The cross-validation process for the EfficientNet-B0 model is done in `notebooks/cross_validation.ipynb`
+The CNN models training and evaluation pipelines are contained in their respective notebooks inside `notebooks/resnet18_CNN.ipynb` and `notebooks/efficientnet_CNN.ipynb`. 
+The cross-validation process for the EfficientNet-B0 model is done inside `notebooks/cross_validation.ipynb`
 
 ## Repo structure
 
